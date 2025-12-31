@@ -9,18 +9,50 @@ import { SearchBar } from './SearchBar';
 import { SortDropdown, type SortOption } from './SortDropdown';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  FileEdit, 
+  ListTodo, 
+  Loader, 
+  CheckCircle2, 
+  Archive,
+  FolderOpen,
+  Sparkles
+} from 'lucide-react';
 
-const BASE_COLUMNS: { status: ChangeStatus; label: string }[] = [
-  { status: 'draft', label: 'Draft' },
-  { status: 'todo', label: 'Todo' },
-  { status: 'in_progress', label: 'In Progress' },
-  { status: 'done', label: 'Done' },
+const COLUMN_CONFIG: { status: ChangeStatus; label: string; icon: React.ReactNode; color: string }[] = [
+  { 
+    status: 'draft', 
+    label: 'Draft', 
+    icon: <FileEdit className="h-4 w-4" />,
+    color: 'text-slate-500'
+  },
+  { 
+    status: 'todo', 
+    label: 'Todo', 
+    icon: <ListTodo className="h-4 w-4" />,
+    color: 'text-blue-500'
+  },
+  { 
+    status: 'in_progress', 
+    label: 'In Progress', 
+    icon: <Loader className="h-4 w-4" />,
+    color: 'text-amber-500'
+  },
+  { 
+    status: 'done', 
+    label: 'Done', 
+    icon: <CheckCircle2 className="h-4 w-4" />,
+    color: 'text-emerald-500'
+  },
 ];
 
-const ARCHIVED_COLUMN: { status: ChangeStatus; label: string } = {
-  status: 'archived',
+const ARCHIVED_COLUMN = {
+  status: 'archived' as ChangeStatus,
   label: 'Archived',
+  icon: <Archive className="h-4 w-4" />,
+  color: 'text-gray-500'
 };
 
 interface KanbanBoardProps {
@@ -40,8 +72,8 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
 
   // Build columns array based on showArchived
   const COLUMNS = showArchived
-    ? [...BASE_COLUMNS, ARCHIVED_COLUMN]
-    : BASE_COLUMNS;
+    ? [...COLUMN_CONFIG, ARCHIVED_COLUMN]
+    : COLUMN_CONFIG;
 
   // Reset active column index if it's out of bounds when columns change
   useEffect(() => {
@@ -185,18 +217,21 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
   if (loading) {
     return (
       <div className="flex gap-4 pb-4">
-        {COLUMNS.map(() => <ColumnSkeleton key={crypto.randomUUID()} />)}
+        {COLUMNS.map((_, i) => <ColumnSkeleton key={i} />)}
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-2">
-        <div className="text-destructive">Error loading changes</div>
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
+        <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center">
+          <span className="text-3xl">⚠️</span>
+        </div>
+        <div className="text-destructive font-medium">Error loading changes</div>
         <div className="text-sm text-muted-foreground">{error.message}</div>
         <Button onClick={() => window.location.reload()} variant="outline" size="sm" className="mt-2">
-          Retry
+          Try Again
         </Button>
       </div>
     );
@@ -206,18 +241,34 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
   if (sortedChanges.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <div className="text-muted-foreground text-lg">
-          {hasNoSources
-            ? "No OpenSpec sources configured"
-            : selectedSourceId
-              ? "No changes found for this project"
-              : searchQuery
-                ? "No changes found matching your search"
-                : "No changes found"
-          }
+        <div className="w-20 h-20 rounded-2xl bg-muted/50 flex items-center justify-center">
+          {hasNoSources ? (
+            <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
+          ) : (
+            <Sparkles className="h-10 w-10 text-muted-foreground/50" />
+          )}
+        </div>
+        <div className="text-center">
+          <div className="text-muted-foreground text-lg font-medium">
+            {hasNoSources
+              ? "No OpenSpec sources configured"
+              : selectedSourceId
+                ? "No changes found for this project"
+                : searchQuery
+                  ? "No changes found matching your search"
+                  : "No changes found"
+            }
+          </div>
+          <p className="text-sm text-muted-foreground/70 mt-1">
+            {hasNoSources 
+              ? "Add a source to get started" 
+              : "Try adjusting your filters"
+            }
+          </p>
         </div>
         {hasNoSources && (
-          <Button onClick={onOpenSettings} size="sm">
+          <Button onClick={onOpenSettings} size="sm" className="mt-2">
+            <FolderOpen className="h-4 w-4 mr-2" />
             Configure Sources
           </Button>
         )}
@@ -264,7 +315,7 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
           
           <div className="flex flex-col items-center gap-1.5">
             {/* Pill tabs */}
-            <div className="flex bg-muted rounded-full p-1 gap-0.5">
+            <div className="flex bg-muted/50 rounded-full p-1 gap-0.5">
               {COLUMNS.map((col, idx) => {
                 const colChanges = sortedChanges.filter((c) => c.status === col.status);
                 return (
@@ -278,14 +329,15 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
                       }
                     }}
                     className={cn(
-                      "px-3 py-1.5 text-xs font-medium rounded-full transition-all duration-200",
+                      "px-3 py-1.5 text-xs font-medium rounded-full transition-all duration-200 flex items-center gap-1.5",
                       idx === activeColumnIndex
                         ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                     aria-label={`${col.label} (${colChanges.length})`}
                   >
-                    {col.label.split(' ')[0]}
+                    <span className={col.color}>{col.icon}</span>
+                    <span className="hidden xs:inline">{col.label.split(' ')[0]}</span>
                   </button>
                 );
               })}
@@ -339,7 +391,9 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
               ))}
               {columnChanges.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <div className="text-muted-foreground/60 text-4xl mb-3">📋</div>
+                  <div className={cn("mb-3", activeColumn.color)}>
+                    {activeColumn.icon}
+                  </div>
                   <div className="text-sm text-muted-foreground">
                     No items in {activeColumn.label}
                   </div>
@@ -367,22 +421,28 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
 
       {/* Kanban columns */}
       <div className="flex gap-4 pb-4">
-        {COLUMNS.map(({ status, label }) => {
+        {COLUMNS.map(({ status, label, icon, color }) => {
           const columnChanges = sortedChanges.filter((c) => c.status === status);
           return (
             <div
               key={status}
               className="flex-1 min-w-0 flex flex-col"
             >
-              <div className="sticky top-0 bg-background py-2 z-10">
-                <h2 className="text-sm font-semibold text-muted-foreground">
-                  {label}
-                </h2>
-                <div className="text-xs text-muted-foreground/60 mt-0.5">
-                  {columnChanges.length}
+              {/* Column header */}
+              <div className="sticky top-0 bg-background/95 backdrop-blur-sm py-3 z-10 border-b border-border/50 mb-3">
+                <div className="flex items-center gap-2">
+                  <span className={color}>{icon}</span>
+                  <h2 className="text-sm font-semibold text-foreground">
+                    {label}
+                  </h2>
+                  <span className="ml-auto text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
+                    {columnChanges.length}
+                  </span>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 flex-1 overflow-y-auto max-h-[calc(100dvh-12rem)]">
+              
+              {/* Column content */}
+              <div className="flex flex-col gap-3 flex-1 overflow-y-auto max-h-[calc(100dvh-14rem)] pr-1">
                 {columnChanges.map((change) => (
                   <ChangeCard
                     key={change.id}
@@ -391,8 +451,11 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
                   />
                 ))}
                 {columnChanges.length === 0 && (
-                  <div className="text-sm text-muted-foreground py-8 text-center">
-                    No items
+                  <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border/50 bg-muted/20">
+                    <span className={cn("mb-2 opacity-40", color)}>{icon}</span>
+                    <div className="text-xs text-muted-foreground/70">
+                      No items
+                    </div>
                   </div>
                 )}
               </div>

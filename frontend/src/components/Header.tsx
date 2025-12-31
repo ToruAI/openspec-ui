@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useTheme } from '../hooks/useTheme';
-import { useSSE } from '../hooks/useApi';
-import { Menu, Settings, SignalHigh, Signal, WifiOff } from 'lucide-react';
+import { Menu, Settings, Sun, Moon, Sparkles } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -49,29 +48,24 @@ export function Header({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleOpenSettings = () => {
-    setMobileMenuOpen(false); // Close mobile menu when opening settings
+    setMobileMenuOpen(false);
     onOpenSettings?.();
   };
 
-  const ConnectionIndicator = () => {
-    const { connectionStatus } = useSSE(() => {
-      // Refetch will be handled by parent components
-      window.location.reload();
-    });
-
-    const icons = {
-      connected: <SignalHigh className="h-4 w-4 text-green-500" />,
-      connecting: <Signal className="h-4 w-4 text-amber-500 animate-pulse" />,
-      disconnected: <WifiOff className="h-4 w-4 text-destructive" />,
-    };
-
-    return (
-      <div className="hidden md:flex items-center gap-2 text-xs text-muted-foreground">
-        {icons[connectionStatus]}
-        <span className="capitalize">{connectionStatus.replace('_', ' ')}</span>
+  const Logo = () => (
+    <div className="flex items-center gap-2.5 group cursor-default select-none">
+      <div className="relative">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-violet)] to-[var(--accent-cyan)] flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow duration-300">
+          <Sparkles className="h-4 w-4 text-white" />
+        </div>
+        <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[var(--accent-violet)] to-[var(--accent-cyan)] opacity-0 group-hover:opacity-40 blur-md transition-opacity duration-300" />
       </div>
-    );
-  };
+      <span className="text-lg font-bold tracking-tight">
+        <span className="text-gradient">Open</span>
+        <span className="text-foreground">Spec</span>
+      </span>
+    </div>
+  );
 
   const ViewToggle = ({ mobile = false }: { mobile?: boolean }) => {
     const handleViewChange = (view: View) => {
@@ -83,46 +77,60 @@ export function Header({
 
     if (mobile) {
       return (
-        <>
+        <div className="space-y-1">
           <button
             onClick={() => handleViewChange('kanban')}
             className={cn(
-              "flex items-center w-full px-3 py-2.5 text-sm rounded-md transition-colors",
+              "flex items-center w-full px-3 py-2.5 text-sm rounded-lg transition-all duration-200",
               currentView === 'kanban'
-                ? "bg-primary text-primary-foreground font-medium"
+                ? "bg-primary text-primary-foreground font-medium shadow-sm"
                 : "text-foreground hover:bg-muted"
             )}
           >
-            Kanban
+            <span className="mr-3">📋</span>
+            Kanban Board
           </button>
           <button
             onClick={() => handleViewChange('specs')}
             className={cn(
-              "flex items-center w-full px-3 py-2.5 text-sm rounded-md transition-colors",
+              "flex items-center w-full px-3 py-2.5 text-sm rounded-lg transition-all duration-200",
               currentView === 'specs'
-                ? "bg-primary text-primary-foreground font-medium"
+                ? "bg-primary text-primary-foreground font-medium shadow-sm"
                 : "text-foreground hover:bg-muted"
             )}
           >
-            Specs
+            <span className="mr-3">📄</span>
+            Specifications
           </button>
-        </>
+        </div>
       );
     }
 
     return (
-      <nav className="flex gap-1">
+      <nav className="flex p-1 bg-muted/50 rounded-lg gap-1">
         <Button
-          variant={currentView === 'kanban' ? 'default' : 'outline'}
+          variant="ghost"
           size="sm"
           onClick={() => handleViewChange('kanban')}
+          className={cn(
+            "h-8 px-3 rounded-md transition-all duration-200",
+            currentView === 'kanban'
+              ? "bg-background text-foreground shadow-sm font-medium"
+              : "text-muted-foreground hover:text-foreground hover:bg-transparent"
+          )}
         >
           Kanban
         </Button>
         <Button
-          variant={currentView === 'specs' ? 'default' : 'outline'}
+          variant="ghost"
           size="sm"
           onClick={() => handleViewChange('specs')}
+          className={cn(
+            "h-8 px-3 rounded-md transition-all duration-200",
+            currentView === 'specs'
+              ? "bg-background text-foreground shadow-sm font-medium"
+              : "text-muted-foreground hover:text-foreground hover:bg-transparent"
+          )}
         >
           Specs
         </Button>
@@ -135,13 +143,23 @@ export function Header({
       value={selectedSourceId || "all"}
       onValueChange={(val) => onSourceChange(val === "all" ? null : val)}
     >
-      <SelectTrigger className="w-[160px] md:w-[200px] h-8 text-sm">
+      <SelectTrigger className="w-[140px] md:w-[180px] h-9 text-sm bg-background/50 border-border/50 hover:border-border transition-colors">
         <SelectValue placeholder="All Projects" />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="all">All Projects</SelectItem>
+        <SelectItem value="all">
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-gradient-to-r from-[var(--accent-violet)] to-[var(--accent-cyan)]" />
+            All Projects
+          </span>
+        </SelectItem>
         {sources.map(s => (
-          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+          <SelectItem key={s.id} value={s.id}>
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[var(--accent-emerald)]" />
+              {s.name}
+            </span>
+          </SelectItem>
         ))}
       </SelectContent>
     </Select>
@@ -152,18 +170,37 @@ export function Header({
       return (
         <button
           onClick={toggle}
-          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-md text-foreground hover:bg-muted transition-colors"
+          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-lg text-foreground hover:bg-muted transition-all duration-200"
           aria-label="Toggle theme"
         >
-          <span className="text-base">{theme === 'dark' ? '☀️' : '🌙'}</span>
-          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+          {theme === 'dark' ? (
+            <>
+              <Sun className="h-4 w-4 text-amber-500" />
+              Light Mode
+            </>
+          ) : (
+            <>
+              <Moon className="h-4 w-4 text-indigo-500" />
+              Dark Mode
+            </>
+          )}
         </button>
       );
     }
 
     return (
-      <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
-        {theme === 'dark' ? '☀️' : '🌙'}
+      <Button 
+        variant="ghost" 
+        size="icon" 
+        onClick={toggle} 
+        aria-label="Toggle theme"
+        className="h-9 w-9 rounded-lg hover:bg-muted transition-colors"
+      >
+        {theme === 'dark' ? (
+          <Sun className="h-4 w-4 text-amber-500 transition-transform hover:rotate-45" />
+        ) : (
+          <Moon className="h-4 w-4 text-indigo-500 transition-transform hover:-rotate-12" />
+        )}
       </Button>
     );
   };
@@ -173,7 +210,7 @@ export function Header({
       return (
         <button
           onClick={handleOpenSettings}
-          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-md text-foreground hover:bg-muted transition-colors"
+          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-lg text-foreground hover:bg-muted transition-all duration-200"
           aria-label="Open settings"
         >
           <Settings className="h-4 w-4" />
@@ -183,8 +220,14 @@ export function Header({
     }
 
     return (
-      <Button variant="ghost" size="icon" onClick={handleOpenSettings} aria-label="Open settings">
-        <Settings className="h-5 w-5" />
+      <Button 
+        variant="ghost" 
+        size="icon" 
+        onClick={handleOpenSettings} 
+        aria-label="Open settings"
+        className="h-9 w-9 rounded-lg hover:bg-muted transition-colors"
+      >
+        <Settings className="h-4 w-4 transition-transform hover:rotate-90 duration-300" />
       </Button>
     );
   };
@@ -206,13 +249,14 @@ export function Header({
         <button
           onClick={handleToggle}
           className={cn(
-            "flex items-center w-full px-3 py-2.5 text-sm rounded-md transition-colors",
+            "flex items-center w-full px-3 py-2.5 text-sm rounded-lg transition-all duration-200",
             showArchived
-              ? "bg-primary text-primary-foreground font-medium"
+              ? "bg-primary text-primary-foreground font-medium shadow-sm"
               : "text-foreground hover:bg-muted"
           )}
           aria-label="Toggle archived changes"
         >
+          <span className="mr-3">📦</span>
           {showArchived ? 'Hide Archived' : 'Show Archived'}
         </button>
       );
@@ -224,6 +268,10 @@ export function Header({
         size="sm"
         onClick={handleToggle}
         aria-label="Toggle archived changes"
+        className={cn(
+          "h-9 transition-all duration-200",
+          !showArchived && "bg-background/50 border-border/50 hover:border-border"
+        )}
       >
         {showArchived ? 'Hide Archived' : 'Show Archived'}
       </Button>
@@ -231,14 +279,12 @@ export function Header({
   };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
       <div className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center justify-between h-14">
+        <div className="flex items-center justify-between h-16">
           {/* Left: Logo + Desktop Nav */}
-          <div className="flex items-center gap-4 md:gap-6">
-            <h1 className="text-lg font-semibold text-foreground">
-              OpenSpec
-            </h1>
+          <div className="flex items-center gap-6">
+            <Logo />
             {/* Desktop view toggle */}
             {showViewToggle && (
               <div className="hidden md:block">
@@ -248,10 +294,7 @@ export function Header({
           </div>
 
           {/* Right: Controls */}
-          <div className="flex items-center gap-2 md:gap-4">
-            {/* Connection indicator - desktop only */}
-            <ConnectionIndicator />
-
+          <div className="flex items-center gap-2 md:gap-3">
             {/* Show Archived toggle - visible on desktop when in kanban view */}
             <div className="hidden md:block">
               <ShowArchivedToggle />
@@ -274,31 +317,38 @@ export function Header({
             <div className="md:hidden">
               <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label="Open menu">
+                  <Button variant="ghost" size="icon" aria-label="Open menu" className="h-9 w-9">
                     <Menu className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="right" className="w-[280px] p-0">
+                <SheetContent side="right" className="w-[300px] p-0">
                   <div className="flex flex-col h-full">
-                    <SheetHeader className="px-5 py-4 border-b border-border">
-                      <SheetTitle className="text-left">Menu</SheetTitle>
+                    <SheetHeader className="px-5 py-5 border-b border-border">
+                      <SheetTitle className="text-left flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        Menu
+                      </SheetTitle>
                     </SheetHeader>
-                    <nav className="flex-1 px-3 py-4 space-y-1">
+                    <nav className="flex-1 px-4 py-5 space-y-6">
                       {showViewToggle && (
-                        <>
-                          <p className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">View</p>
+                        <div className="space-y-2">
+                          <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">View</p>
                           <ViewToggle mobile />
-                        </>
+                        </div>
                       )}
                       {currentView === 'kanban' && onShowArchivedChange && (
-                        <>
-                          <p className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider mt-4">Filter</p>
+                        <div className="space-y-2">
+                          <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter</p>
                           <ShowArchivedToggle mobile />
-                        </>
+                        </div>
                       )}
-                      <p className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider mt-4">Preferences</p>
-                      <SettingsButton mobile />
-                      <ThemeToggle mobile />
+                      <div className="space-y-2">
+                        <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Preferences</p>
+                        <div className="space-y-1">
+                          <SettingsButton mobile />
+                          <ThemeToggle mobile />
+                        </div>
+                      </div>
                     </nav>
                   </div>
                 </SheetContent>
