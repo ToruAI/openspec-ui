@@ -1,0 +1,15 @@
+{
+  "name": "openspec-ui-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && cargo run -- --config ../openspec-ui.json",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && cargo build --release"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

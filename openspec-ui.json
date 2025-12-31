@@ -1,0 +1,13 @@
+{
+  "sources": [
+    {
+      "name": "openspec-ui",
+      "path": "./openspec"
+    },
+    {
+      "name": "toru-steering-center",
+      "path": "/Users/tako/GitRepos/toru-steering-center/openspec"
+    }
+  ],
+  "port": 3000
+}
