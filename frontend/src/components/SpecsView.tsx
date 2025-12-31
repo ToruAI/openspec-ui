@@ -124,7 +124,7 @@ export function SpecsView({ selectedSourceId }: SpecsViewProps) {
 
   // Content area
   const ContentArea = () => (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-8 overflow-hidden">
       {selectedSpecId ? (
         detailLoading ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
@@ -146,7 +146,7 @@ export function SpecsView({ selectedSourceId }: SpecsViewProps) {
                 </div>
               </div>
             </div>
-            <article className="prose prose-sm md:prose dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm">
+            <article className="prose prose-sm md:prose dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm overflow-hidden break-words">
               <ReactMarkdown>{specDetail.content}</ReactMarkdown>
             </article>
           </div>

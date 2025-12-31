@@ -56,7 +56,7 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background overflow-x-hidden max-w-full">
         <Header
           currentView={currentView}
           onViewChange={setCurrentView}

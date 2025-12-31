@@ -152,7 +152,7 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
         </DialogHeader>
 
         {/* Content */}
-        <div className={`flex-1 overflow-hidden flex flex-col min-h-0 ${isMobile ? '' : 'px-6'}`}>
+        <div className={`flex-1 overflow-hidden flex flex-col min-h-0 ${isMobile ? 'px-4' : 'px-6'}`}>
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)} className="flex-1 flex flex-col min-h-0 overflow-hidden">
             <TabsList 
               className="grid w-full flex-shrink-0 bg-muted/50 p-1 h-auto gap-1" 
@@ -182,17 +182,17 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
               })}
             </TabsList>
 
-            <div className="flex-1 overflow-y-auto mt-4 scroll-smooth">
-              <div className="pr-2 pb-8">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden mt-4 scroll-smooth">
+              <div className="pr-2 pb-8 overflow-hidden">
                 {loading ? (
                   <LoadingState />
                 ) : !detail ? (
                   <EmptyState message="Failed to load details" />
                 ) : (
                   <>
-                    <TabsContent value="proposal" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200">
+                    <TabsContent value="proposal" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
                       {detail.proposal ? (
-                        <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm">
+                        <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm overflow-hidden break-words">
                           <ReactMarkdown>{detail.proposal}</ReactMarkdown>
                         </article>
                       ) : (
@@ -200,18 +200,18 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
                       )}
                     </TabsContent>
 
-                    <TabsContent value="specs" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200">
+                    <TabsContent value="specs" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
                       {detail.specs.length > 0 ? (
-                        <div className="space-y-8">
+                        <div className="space-y-8 overflow-hidden">
                           {detail.specs.map((spec, idx) => (
-                            <div key={idx}>
-                              <div className="flex items-center gap-2 mb-4">
-                                <Layers className="h-4 w-4 text-emerald-500" />
-                                <h3 className="text-sm font-semibold font-mono text-foreground">
+                            <div key={idx} className="overflow-hidden">
+                              <div className="flex items-center gap-2 mb-4 min-w-0">
+                                <Layers className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                                <h3 className="text-sm font-semibold font-mono text-foreground truncate">
                                   {spec.path}
                                 </h3>
                               </div>
-                              <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm">
+                              <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm overflow-hidden break-words">
                                 <ReactMarkdown>{spec.content}</ReactMarkdown>
                               </article>
                               {idx < detail.specs.length - 1 && <Separator className="my-8" />}
@@ -223,9 +223,9 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
                       )}
                     </TabsContent>
 
-                    <TabsContent value="tasks" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200">
+                    <TabsContent value="tasks" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
                       {detail.tasks ? (
-                        <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm prose-li:marker:text-primary">
+                        <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm prose-li:marker:text-primary overflow-hidden break-words">
                           <ReactMarkdown>{detail.tasks.raw}</ReactMarkdown>
                         </article>
                       ) : (
@@ -233,9 +233,9 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
                       )}
                     </TabsContent>
 
-                    <TabsContent value="design" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200">
+                    <TabsContent value="design" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
                       {detail.design ? (
-                        <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm">
+                        <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm overflow-hidden break-words">
                           <ReactMarkdown>{detail.design}</ReactMarkdown>
                         </article>
                       ) : (

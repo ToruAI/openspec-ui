@@ -53,14 +53,14 @@ export function Header({
   };
 
   const Logo = () => (
-    <div className="flex items-center gap-2.5 group cursor-default select-none">
+    <div className="flex items-center gap-2.5 group cursor-default select-none shrink-0">
       <div className="relative">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-violet)] to-[var(--accent-cyan)] flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow duration-300">
           <Sparkles className="h-4 w-4 text-white" />
         </div>
         <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[var(--accent-violet)] to-[var(--accent-cyan)] opacity-0 group-hover:opacity-40 blur-md transition-opacity duration-300" />
       </div>
-      <span className="text-lg font-bold tracking-tight">
+      <span className="text-lg font-bold tracking-tight whitespace-nowrap">
         <span className="text-gradient">Open</span>
         <span className="text-foreground">Spec</span>
       </span>
@@ -143,21 +143,21 @@ export function Header({
       value={selectedSourceId || "all"}
       onValueChange={(val) => onSourceChange(val === "all" ? null : val)}
     >
-      <SelectTrigger className="w-[140px] md:w-[180px] h-9 text-sm bg-background/50 border-border/50 hover:border-border transition-colors">
+      <SelectTrigger className="w-[120px] md:w-[180px] h-9 text-sm bg-background/50 border-border/50 hover:border-border transition-colors shrink-0">
         <SelectValue placeholder="All Projects" />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="all">
           <span className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-gradient-to-r from-[var(--accent-violet)] to-[var(--accent-cyan)]" />
-            All Projects
+            <span className="w-2 h-2 rounded-full bg-gradient-to-r from-[var(--accent-violet)] to-[var(--accent-cyan)] shrink-0" />
+            <span className="truncate">All Projects</span>
           </span>
         </SelectItem>
         {sources.map(s => (
           <SelectItem key={s.id} value={s.id}>
-            <span className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--accent-emerald)]" />
-              {s.name}
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-[var(--accent-emerald)] shrink-0" />
+              <span className="truncate">{s.name}</span>
             </span>
           </SelectItem>
         ))}
@@ -279,11 +279,11 @@ export function Header({
   };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
+    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 overflow-x-hidden">
+      <div className="max-w-7xl mx-auto px-4 overflow-hidden">
+        <div className="flex items-center justify-between h-16 overflow-hidden">
           {/* Left: Logo + Desktop Nav */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 md:gap-6 min-w-0 flex-shrink overflow-hidden">
             <Logo />
             {/* Desktop view toggle */}
             {showViewToggle && (
@@ -294,7 +294,7 @@ export function Header({
           </div>
 
           {/* Right: Controls */}
-          <div className="flex items-center gap-2 md:gap-3">
+          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
             {/* Show Archived toggle - visible on desktop when in kanban view */}
             <div className="hidden md:block">
               <ShowArchivedToggle />
