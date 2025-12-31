@@ -143,7 +143,7 @@ export function Header({
       value={selectedSourceId || "all"}
       onValueChange={(val) => onSourceChange(val === "all" ? null : val)}
     >
-      <SelectTrigger className="w-[120px] md:w-[180px] h-9 text-sm bg-background/50 border-border/50 hover:border-border transition-colors shrink-0">
+      <SelectTrigger className="w-[160px] md:w-[180px] h-9 text-sm bg-background/50 border-border/50 hover:border-border transition-colors shrink-0">
         <SelectValue placeholder="All Projects" />
       </SelectTrigger>
       <SelectContent>
