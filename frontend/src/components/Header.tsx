@@ -3,6 +3,7 @@ import { useTheme } from '../hooks/useTheme';
 import { useSSE } from '../hooks/useApi';
 import { Menu, Settings, SignalHigh, Signal, WifiOff } from 'lucide-react';
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -14,8 +15,9 @@ import {
   Sheet,
   SheetContent,
   SheetTrigger,
+  SheetHeader,
+  SheetTitle,
 } from "@/components/ui/sheet";
-import { SettingsModal } from './SettingsModal';
 import type { Source } from '../types';
 
 type View = 'kanban' | 'specs';
@@ -44,10 +46,10 @@ export function Header({
   onOpenSettings,
 }: HeaderProps) {
   const { theme, toggle } = useTheme();
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleOpenSettings = () => {
-    setSettingsOpen(true);
+    setMobileMenuOpen(false); // Close mobile menu when opening settings
     onOpenSettings?.();
   };
 
@@ -71,24 +73,62 @@ export function Header({
     );
   };
 
-  const ViewToggle = () => (
-    <nav className="flex gap-1">
-      <Button
-        variant={currentView === 'kanban' ? 'default' : 'ghost'}
-        size="sm"
-        onClick={() => onViewChange('kanban')}
-      >
-        Kanban
-      </Button>
-      <Button
-        variant={currentView === 'specs' ? 'default' : 'ghost'}
-        size="sm"
-        onClick={() => onViewChange('specs')}
-      >
-        Specs
-      </Button>
-    </nav>
-  );
+  const ViewToggle = ({ mobile = false }: { mobile?: boolean }) => {
+    const handleViewChange = (view: View) => {
+      onViewChange(view);
+      if (mobile) {
+        setMobileMenuOpen(false);
+      }
+    };
+
+    if (mobile) {
+      return (
+        <>
+          <button
+            onClick={() => handleViewChange('kanban')}
+            className={cn(
+              "flex items-center w-full px-3 py-2.5 text-sm rounded-md transition-colors",
+              currentView === 'kanban'
+                ? "bg-primary text-primary-foreground font-medium"
+                : "text-foreground hover:bg-muted"
+            )}
+          >
+            Kanban
+          </button>
+          <button
+            onClick={() => handleViewChange('specs')}
+            className={cn(
+              "flex items-center w-full px-3 py-2.5 text-sm rounded-md transition-colors",
+              currentView === 'specs'
+                ? "bg-primary text-primary-foreground font-medium"
+                : "text-foreground hover:bg-muted"
+            )}
+          >
+            Specs
+          </button>
+        </>
+      );
+    }
+
+    return (
+      <nav className="flex gap-1">
+        <Button
+          variant={currentView === 'kanban' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => handleViewChange('kanban')}
+        >
+          Kanban
+        </Button>
+        <Button
+          variant={currentView === 'specs' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => handleViewChange('specs')}
+        >
+          Specs
+        </Button>
+      </nav>
+    );
+  };
 
   const SourceSelect = () => (
     <Select
@@ -107,37 +147,82 @@ export function Header({
     </Select>
   );
 
-  const ThemeToggle = () => (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={toggle}
-      aria-label="Toggle theme"
-    >
-      {theme === 'dark' ? '☀️' : '🌙'}
-    </Button>
-  );
+  const ThemeToggle = ({ mobile = false }: { mobile?: boolean }) => {
+    if (mobile) {
+      return (
+        <button
+          onClick={toggle}
+          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-md text-foreground hover:bg-muted transition-colors"
+          aria-label="Toggle theme"
+        >
+          <span className="text-base">{theme === 'dark' ? '☀️' : '🌙'}</span>
+          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+        </button>
+      );
+    }
 
-  const SettingsButton = () => (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={handleOpenSettings}
-      aria-label="Open settings"
-    >
-      <Settings className="h-5 w-5" />
-    </Button>
-  );
+    return (
+      <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
+        {theme === 'dark' ? '☀️' : '🌙'}
+      </Button>
+    );
+  };
 
-  const ShowArchivedToggle = () => {
+  const SettingsButton = ({ mobile = false }: { mobile?: boolean }) => {
+    if (mobile) {
+      return (
+        <button
+          onClick={handleOpenSettings}
+          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-md text-foreground hover:bg-muted transition-colors"
+          aria-label="Open settings"
+        >
+          <Settings className="h-4 w-4" />
+          Settings
+        </button>
+      );
+    }
+
+    return (
+      <Button variant="ghost" size="icon" onClick={handleOpenSettings} aria-label="Open settings">
+        <Settings className="h-5 w-5" />
+      </Button>
+    );
+  };
+
+  const ShowArchivedToggle = ({ mobile = false }: { mobile?: boolean }) => {
     if (currentView !== 'kanban' || !onShowArchivedChange) {
       return null;
     }
+
+    const handleToggle = () => {
+      onShowArchivedChange(!showArchived);
+      if (mobile) {
+        setMobileMenuOpen(false);
+      }
+    };
+
+    if (mobile) {
+      return (
+        <button
+          onClick={handleToggle}
+          className={cn(
+            "flex items-center w-full px-3 py-2.5 text-sm rounded-md transition-colors",
+            showArchived
+              ? "bg-primary text-primary-foreground font-medium"
+              : "text-foreground hover:bg-muted"
+          )}
+          aria-label="Toggle archived changes"
+        >
+          {showArchived ? 'Hide Archived' : 'Show Archived'}
+        </button>
+      );
+    }
+
     return (
       <Button
-        variant={showArchived ? 'default' : 'ghost'}
+        variant={showArchived ? 'default' : 'outline'}
         size="sm"
-        onClick={() => onShowArchivedChange(!showArchived)}
+        onClick={handleToggle}
         aria-label="Toggle archived changes"
       >
         {showArchived ? 'Hide Archived' : 'Show Archived'}
@@ -187,34 +272,34 @@ export function Header({
 
             {/* Mobile menu */}
             <div className="md:hidden">
-              <Sheet>
+              <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon">
+                  <Button variant="ghost" size="icon" aria-label="Open menu">
                     <Menu className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="right" className="w-64">
-                  <div className="flex flex-col gap-6 pt-6">
-                    {showViewToggle && (
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-2">View</h3>
-                        <ViewToggle />
-                      </div>
-                    )}
-                    {currentView === 'kanban' && onShowArchivedChange && (
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-2">Archived</h3>
-                        <ShowArchivedToggle />
-                      </div>
-                    )}
-                    <div>
-                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Settings</h3>
-                      <SettingsButton />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Theme</h3>
-                      <ThemeToggle />
-                    </div>
+                <SheetContent side="right" className="w-[280px] p-0">
+                  <div className="flex flex-col h-full">
+                    <SheetHeader className="px-5 py-4 border-b border-border">
+                      <SheetTitle className="text-left">Menu</SheetTitle>
+                    </SheetHeader>
+                    <nav className="flex-1 px-3 py-4 space-y-1">
+                      {showViewToggle && (
+                        <>
+                          <p className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">View</p>
+                          <ViewToggle mobile />
+                        </>
+                      )}
+                      {currentView === 'kanban' && onShowArchivedChange && (
+                        <>
+                          <p className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider mt-4">Filter</p>
+                          <ShowArchivedToggle mobile />
+                        </>
+                      )}
+                      <p className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider mt-4">Preferences</p>
+                      <SettingsButton mobile />
+                      <ThemeToggle mobile />
+                    </nav>
                   </div>
                 </SheetContent>
               </Sheet>
@@ -222,7 +307,6 @@ export function Header({
           </div>
         </div>
       </div>
-      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
     </header>
   );
 }

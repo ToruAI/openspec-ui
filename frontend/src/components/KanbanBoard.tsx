@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import type { TouchEvent } from 'react';
 import { useChanges, useSources } from '../hooks/useApi';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -9,6 +9,7 @@ import { SearchBar } from './SearchBar';
 import { SortDropdown, type SortOption } from './SortDropdown';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 const BASE_COLUMNS: { status: ChangeStatus; label: string }[] = [
   { status: 'draft', label: 'Draft' },
@@ -98,32 +99,88 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
     return result;
   }, [filteredChanges, sortBy]);
 
-  // Swipe handling
+  // Swipe handling with drag offset
   const touchStartX = useRef<number>(0);
-  const touchEndX = useRef<number>(0);
+  const touchCurrentX = useRef<number>(0);
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const handleTouchStart = (e: TouchEvent) => {
+    if (isAnimating) return;
     touchStartX.current = e.touches[0].clientX;
+    touchCurrentX.current = e.touches[0].clientX;
   };
 
   const handleTouchMove = (e: TouchEvent) => {
-    touchEndX.current = e.touches[0].clientX;
+    if (isAnimating) return;
+    touchCurrentX.current = e.touches[0].clientX;
+    const diff = touchCurrentX.current - touchStartX.current;
+    
+    // Add resistance at edges
+    const isAtStart = activeColumnIndex === 0 && diff > 0;
+    const isAtEnd = activeColumnIndex === COLUMNS.length - 1 && diff < 0;
+    
+    if (isAtStart || isAtEnd) {
+      setDragOffset(diff * 0.3); // Rubber band effect
+    } else {
+      setDragOffset(diff);
+    }
   };
 
   const handleTouchEnd = () => {
-    const diff = touchStartX.current - touchEndX.current;
-    const threshold = 50;
+    if (isAnimating) return;
+    
+    const diff = touchStartX.current - touchCurrentX.current;
+    const threshold = 60;
+    const containerWidth = containerRef.current?.offsetWidth || 300;
+
+    setIsAnimating(true);
 
     if (Math.abs(diff) > threshold) {
       if (diff > 0 && activeColumnIndex < COLUMNS.length - 1) {
         // Swipe left - next column
-        setActiveColumnIndex(prev => prev + 1);
+        setDragOffset(-containerWidth);
+        setTimeout(() => {
+          setActiveColumnIndex(prev => prev + 1);
+          setDragOffset(0);
+          setIsAnimating(false);
+        }, 200);
       } else if (diff < 0 && activeColumnIndex > 0) {
         // Swipe right - previous column
-        setActiveColumnIndex(prev => prev - 1);
+        setDragOffset(containerWidth);
+        setTimeout(() => {
+          setActiveColumnIndex(prev => prev - 1);
+          setDragOffset(0);
+          setIsAnimating(false);
+        }, 200);
+      } else {
+        // Bounce back
+        setDragOffset(0);
+        setTimeout(() => setIsAnimating(false), 200);
       }
+    } else {
+      // Bounce back
+      setDragOffset(0);
+      setTimeout(() => setIsAnimating(false), 200);
     }
   };
+
+  const goToPrevColumn = useCallback(() => {
+    if (activeColumnIndex > 0 && !isAnimating) {
+      setIsAnimating(true);
+      setActiveColumnIndex(prev => prev - 1);
+      setTimeout(() => setIsAnimating(false), 200);
+    }
+  }, [activeColumnIndex, isAnimating]);
+
+  const goToNextColumn = useCallback(() => {
+    if (activeColumnIndex < COLUMNS.length - 1 && !isAnimating) {
+      setIsAnimating(true);
+      setActiveColumnIndex(prev => prev + 1);
+      setTimeout(() => setIsAnimating(false), 200);
+    }
+  }, [activeColumnIndex, COLUMNS.length, isAnimating]);
 
   if (loading) {
     return (
@@ -179,9 +236,9 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
     const columnChanges = sortedChanges.filter((c) => c.status === activeColumn.status);
 
     return (
-      <div className="flex flex-col gap-4 h-[calc(100dvh-8rem)]">
-        {/* Search and sort */}
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col h-[calc(100dvh-8rem)]">
+        {/* Search */}
+        <div className="px-1 pb-3">
           <SearchBar
             value={searchQuery}
             onChange={setSearchQuery}
@@ -189,52 +246,107 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
           />
         </div>
 
-        {/* Status dots + label */}
-        <div className="flex flex-col items-center gap-2 pb-4">
-          <div className="flex gap-2">
-            {COLUMNS.map((col, idx) => (
-              <button
-                key={col.status}
-                onClick={() => setActiveColumnIndex(idx)}
-                className={cn(
-                  "w-2 h-2 rounded-full transition-all",
-                  idx === activeColumnIndex
-                    ? "bg-primary w-6"
-                    : "bg-muted-foreground/30"
-                )}
-                aria-label={`Go to ${col.label}`}
-              />
-            ))}
-          </div>
-          <div className="text-sm font-medium text-foreground">
-            {activeColumn.label}
-            <span className="ml-2 text-muted-foreground">
-              ({columnChanges.length})
+        {/* Column tabs with navigation */}
+        <div className="flex items-center justify-between px-1 pb-3">
+          <button
+            onClick={goToPrevColumn}
+            disabled={activeColumnIndex === 0}
+            className={cn(
+              "p-2 rounded-full transition-all",
+              activeColumnIndex === 0
+                ? "text-muted-foreground/30"
+                : "text-foreground hover:bg-muted active:scale-95"
+            )}
+            aria-label="Previous column"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          
+          <div className="flex flex-col items-center gap-1.5">
+            {/* Pill tabs */}
+            <div className="flex bg-muted rounded-full p-1 gap-0.5">
+              {COLUMNS.map((col, idx) => {
+                const colChanges = sortedChanges.filter((c) => c.status === col.status);
+                return (
+                  <button
+                    key={col.status}
+                    onClick={() => {
+                      if (!isAnimating) {
+                        setIsAnimating(true);
+                        setActiveColumnIndex(idx);
+                        setTimeout(() => setIsAnimating(false), 200);
+                      }
+                    }}
+                    className={cn(
+                      "px-3 py-1.5 text-xs font-medium rounded-full transition-all duration-200",
+                      idx === activeColumnIndex
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                    aria-label={`${col.label} (${colChanges.length})`}
+                  >
+                    {col.label.split(' ')[0]}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Count badge */}
+            <span className="text-xs text-muted-foreground">
+              {columnChanges.length} {columnChanges.length === 1 ? 'item' : 'items'}
             </span>
           </div>
-        </div>
 
-        {/* Swipeable area */}
-        <div className="flex-1 overflow-y-auto px-1" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-          <div className="flex flex-col gap-3">
-            {columnChanges.map((change) => (
-              <ChangeCard
-                key={change.id}
-                change={change}
-                onClick={() => onCardClick(change)}
-              />
-            ))}
-            {columnChanges.length === 0 && (
-              <div className="text-sm text-muted-foreground py-12 text-center">
-                No items in {activeColumn.label}
-              </div>
+          <button
+            onClick={goToNextColumn}
+            disabled={activeColumnIndex === COLUMNS.length - 1}
+            className={cn(
+              "p-2 rounded-full transition-all",
+              activeColumnIndex === COLUMNS.length - 1
+                ? "text-muted-foreground/30"
+                : "text-foreground hover:bg-muted active:scale-95"
             )}
-          </div>
+            aria-label="Next column"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
         </div>
 
-        {/* Swipe hint */}
-        <div className="text-xs text-muted-foreground text-center py-3">
-          Swipe to navigate
+        {/* Swipeable content area */}
+        <div 
+          ref={containerRef}
+          className="flex-1 overflow-hidden relative"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          <div 
+            className={cn(
+              "h-full px-1 overflow-y-auto",
+              isAnimating && "transition-transform duration-200 ease-out"
+            )}
+            style={{ 
+              transform: `translateX(${dragOffset}px)`,
+              opacity: Math.max(0.4, 1 - Math.abs(dragOffset) / 400)
+            }}
+          >
+            <div className="flex flex-col gap-3 pb-4">
+              {columnChanges.map((change) => (
+                <ChangeCard
+                  key={change.id}
+                  change={change}
+                  onClick={() => onCardClick(change)}
+                />
+              ))}
+              {columnChanges.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <div className="text-muted-foreground/60 text-4xl mb-3">📋</div>
+                  <div className="text-sm text-muted-foreground">
+                    No items in {activeColumn.label}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     );
