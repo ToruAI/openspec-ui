@@ -3,12 +3,13 @@ import { Header } from './components/Header';
 import { KanbanBoard } from './components/KanbanBoard';
 import { SpecsView } from './components/SpecsView';
 import { DetailModal } from './components/DetailModal';
+import { IdeaDetailModal } from './components/IdeaDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { IdeaCapture } from './components/IdeaCapture';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useSSE, useChanges, useSpecs, useSources, useIdeas } from './hooks/useApi';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
-import type { Change } from './types';
+import type { Change, Idea } from './types';
 import './App.css';
 
 type View = 'kanban' | 'specs';
@@ -24,6 +25,7 @@ function App() {
     return 'kanban';
   });
   const [selectedChange, setSelectedChange] = useState<Change | null>(null);
+  const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState<boolean>(() => {
     const stored = localStorage.getItem(SHOW_ARCHIVED_KEY);
@@ -31,6 +33,7 @@ function App() {
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ideaCaptureOpen, setIdeaCaptureOpen] = useState(false);
+  const [editingIdea, setEditingIdea] = useState<Idea | null>(null);
 
   // Persist view preference
   useEffect(() => {
@@ -87,6 +90,7 @@ function App() {
           {currentView === 'kanban' ? (
             <KanbanBoard
               onCardClick={setSelectedChange}
+              onIdeaClick={setSelectedIdea}
               selectedSourceId={selectedSourceId}
               showArchived={showArchived}
               onOpenSettings={() => setSettingsOpen(true)}
@@ -101,15 +105,33 @@ function App() {
             onClose={() => setSelectedChange(null)}
           />
         )}
+        {selectedIdea && (
+          <IdeaDetailModal
+            idea={selectedIdea}
+            onClose={() => setSelectedIdea(null)}
+            onDeleted={refetchIdeas}
+            onEdit={(idea) => {
+              setEditingIdea(idea);
+              setIdeaCaptureOpen(true);
+            }}
+          />
+        )}
         <SettingsModal
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
         />
         <IdeaCapture
           open={ideaCaptureOpen}
-          onOpenChange={setIdeaCaptureOpen}
+          onOpenChange={(open) => {
+            setIdeaCaptureOpen(open);
+            if (!open) {
+              setEditingIdea(null);
+            }
+          }}
+          idea={editingIdea}
           onSuccess={() => {
             refetchIdeas();
+            setEditingIdea(null);
           }}
         />
       </div>

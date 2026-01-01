@@ -96,6 +96,12 @@ struct CreateIdeaRequest {
     project_id: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct UpdateIdeaRequest {
+    title: String,
+    description: String,
+}
+
 // === Handlers ===
 
 async fn health() -> &'static str {
@@ -230,6 +236,7 @@ async fn create_idea(
     let id = format!("idea-{}", chrono::Utc::now().timestamp());
     let idea = parser::save_idea(
         &source.path,
+        &source.id,
         &id,
         &req.title,
         &req.description,
@@ -286,6 +293,48 @@ async fn delete_idea(
     let _ = state.update_tx.send(());
 
     Ok(StatusCode::OK)
+}
+
+async fn update_idea(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateIdeaRequest>,
+) -> Result<Json<Idea>, (StatusCode, Json<ErrorResponse>)> {
+    let parts: Vec<&str> = id.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid idea ID format".to_string(),
+            }),
+        ));
+    }
+
+    let source_id = parts[0];
+    let idea_id = parts[1];
+
+    let sources = state.get_sources().await;
+    let source = sources
+        .iter()
+        .find(|s| s.id == source_id && s.valid)
+        .ok_or_else(|| (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Source not found".to_string(),
+            }),
+        ))?;
+
+    let idea = parser::update_idea(&source.path, &source.id, idea_id, &req.title, &req.description)
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to update idea: {}", e),
+            }),
+        ))?;
+
+    let _ = state.update_tx.send(());
+
+    Ok(Json(idea))
 }
 
 async fn get_config(State(state): State<AppState>) -> Result<Json<ConfigResponse>, StatusCode> {
@@ -543,7 +592,7 @@ async fn main() {
         .route("/api/specs", get(get_specs))
         .route("/api/specs/{id}", get(get_spec_detail))
         .route("/api/ideas", get(get_ideas).post(create_idea))
-        .route("/api/ideas/{id}", delete(delete_idea))
+        .route("/api/ideas/{id}", delete(delete_idea).put(update_idea))
         .route("/api/events", get(sse_handler))
         .layer(cors)
         .with_state(state);

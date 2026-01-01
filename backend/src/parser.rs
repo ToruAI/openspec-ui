@@ -454,7 +454,7 @@ pub fn scan_ideas(source_path: &Path, source_id: &str) -> Vec<Idea> {
 }
 
 /// Save idea to file system
-pub fn save_idea(source_path: &Path, id: &str, title: &str, description: &str, project_id: Option<&str>) -> std::io::Result<Idea> {
+pub fn save_idea(source_path: &Path, source_id: &str, id: &str, title: &str, description: &str, project_id: Option<&str>) -> std::io::Result<Idea> {
     let ideas_path = source_path.join("ideas");
     
     if !ideas_path.exists() {
@@ -479,7 +479,8 @@ updatedAt: {}
 
 # {}
 
-{}"#,
+{}
+"#,
         id, project_id_line, now, now, title, description
     );
 
@@ -488,11 +489,7 @@ updatedAt: {}
 
     Ok(Idea {
         id: id.to_string(),
-        source_id: source_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string(),
+        source_id: source_id.to_string(),
         project_id: project_id.map(|s| s.to_string()),
         title: title.to_string(),
         description: description.to_string(),
@@ -504,17 +501,91 @@ updatedAt: {}
 /// Delete idea from file system
 pub fn delete_idea(source_path: &Path, id: &str) -> std::io::Result<()> {
     let idea_path = source_path.join("ideas").join(format!("{}.md", id));
-    
+
     if idea_path.exists() {
         std::fs::remove_file(idea_path)?;
     }
-    
+
     Ok(())
+}
+
+/// Update idea in file system
+pub fn update_idea(source_path: &Path, source_id: &str, id: &str, title: &str, description: &str) -> std::io::Result<Idea> {
+    let idea_path = source_path.join("ideas").join(format!("{}.md", id));
+
+    if !idea_path.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Idea file not found"
+        ));
+    }
+
+    let existing_content = std::fs::read_to_string(&idea_path)?;
+    let frontmatter = parse_idea_frontmatter(&existing_content).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid idea file format"
+        )
+    })?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let project_id_line = if let Some(ref pid) = frontmatter.project_id {
+        format!("projectId: {}", pid)
+    } else {
+        String::new()
+    };
+
+    let content = format!(
+        r#"---
+id: {}
+{}
+createdAt: {}
+updatedAt: {}
+---
+
+# {}
+
+{}
+"#,
+        id, project_id_line, frontmatter.created_at, now, title, description
+    );
+
+    std::fs::write(&idea_path, content)?;
+
+    Ok(Idea {
+        id: id.to_string(),
+        source_id: source_id.to_string(),
+        project_id: frontmatter.project_id,
+        title: title.to_string(),
+        description: description.to_string(),
+        created_at: frontmatter.created_at,
+        updated_at: now,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_idea_frontmatter_with_empty_line() {
+        let content = r#"---
+id: idea-123
+
+createdAt: 2026-01-01T00:00:00+00:00
+updatedAt: 2026-01-01T00:00:00+00:00
+---
+
+# Title
+Description"#;
+        
+        let frontmatter = parse_idea_frontmatter(content);
+        assert!(frontmatter.is_some());
+        let f = frontmatter.unwrap();
+        assert_eq!(f.id, "idea-123");
+        assert!(f.project_id.is_none());
+    }
 
     #[test]
     fn test_parse_task_stats() {

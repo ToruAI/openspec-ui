@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSources } from '../hooks/useApi';
+import { createIdea, updateIdea } from '../hooks/useApi';
+import type { Idea } from '../types';
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +14,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createIdea } from '../hooks/useApi';
 import {
   Select,
   SelectContent,
@@ -25,10 +26,11 @@ interface IdeaCaptureProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   trigger?: React.ReactNode;
+  idea?: Idea | null;
   onSuccess?: () => void;
 }
 
-export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, onSuccess }: IdeaCaptureProps) {
+export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, idea, onSuccess }: IdeaCaptureProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -38,6 +40,19 @@ export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, onSuc
 
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = onOpenChange || setInternalOpen;
+  const isEditing = !!idea;
+
+  useEffect(() => {
+    if (idea) {
+      setTitle(idea.title);
+      setDescription(idea.description);
+      setProjectId(idea.projectId);
+    } else {
+      setTitle('');
+      setDescription('');
+      setProjectId(null);
+    }
+  }, [idea]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,15 +60,19 @@ export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, onSuc
 
     setSaving(true);
     try {
-      await createIdea(title, description, projectId);
+      if (isEditing && idea) {
+        await updateIdea(idea.id, title, description);
+      } else {
+        await createIdea(title, description, projectId);
+      }
       setTitle('');
       setDescription('');
       setProjectId(null);
       setOpen(false);
       onSuccess?.();
     } catch (error) {
-      console.error('Failed to create idea:', error);
-      alert('Failed to create idea. Please try again.');
+      console.error('Failed to save idea:', error);
+      alert('Failed to save idea. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -68,32 +87,37 @@ export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, onSuc
       ) : null}
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Capture Idea</DialogTitle>
+          <DialogTitle>{isEditing ? 'Edit Idea' : 'Capture Idea'}</DialogTitle>
           <DialogDescription>
-            Quickly jot down an idea. AI agents can help you expand it into a full proposal later.
+            {isEditing
+              ? 'Update your idea details.'
+              : 'Quickly jot down an idea. AI agents can help you expand it into a full proposal later.'
+            }
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="project">Project (Optional)</Label>
-              <Select
-                value={projectId || ''}
-                onValueChange={(value) => setProjectId(value === 'none' ? null : value)}
-              >
-                <SelectTrigger id="project">
-                  <SelectValue placeholder="Select a project or leave unassigned" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No Project (General Ideas)</SelectItem>
-                  {sources.map((source) => (
-                    <SelectItem key={source.id} value={source.id}>
-                      {source.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!isEditing && (
+              <div className="space-y-2">
+                <Label htmlFor="project">Project (Optional)</Label>
+                <Select
+                  value={projectId || ''}
+                  onValueChange={(value) => setProjectId(value === 'none' ? null : value)}
+                >
+                  <SelectTrigger id="project">
+                    <SelectValue placeholder="Select a project or leave unassigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Project (General Ideas)</SelectItem>
+                    {sources.map((source) => (
+                      <SelectItem key={source.id} value={source.id}>
+                        {source.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="title">Title</Label>
               <Input
@@ -127,7 +151,7 @@ export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, onSuc
               Cancel
             </Button>
             <Button type="submit" disabled={saving || !title.trim()}>
-              {saving ? 'Saving...' : 'Save Idea'}
+              {saving ? 'Saving...' : (isEditing ? 'Update Idea' : 'Save Idea')}
             </Button>
           </DialogFooter>
         </form>

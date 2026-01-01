@@ -22,13 +22,13 @@ import {
   Sparkles
 } from 'lucide-react';
 
+const ARCHIVED_COLUMN = {
+  label: 'Archived',
+  icon: <Archive className="h-4 w-4" />,
+  color: 'text-gray-500'
+};
+
 const COLUMN_CONFIG: { status: ChangeStatus; label: string; icon: React.ReactNode; color: string }[] = [
-  { 
-    status: 'draft', 
-    label: 'Ideas', 
-    icon: <Lightbulb className="h-4 w-4" />,
-    color: 'text-violet-500'
-  },
   { 
     status: 'todo', 
     label: 'Todo', 
@@ -49,21 +49,25 @@ const COLUMN_CONFIG: { status: ChangeStatus; label: string; icon: React.ReactNod
   },
 ];
 
-const ARCHIVED_COLUMN = {
-  status: 'archived' as ChangeStatus,
-  label: 'Archived',
-  icon: <Archive className="h-4 w-4" />,
-  color: 'text-gray-500'
+const IDEAS_COLUMN = {
+  label: 'Ideas',
+  icon: <Lightbulb className="h-4 w-4" />,
+  color: 'text-violet-500'
 };
+
+type Column = 
+  | { type: 'ideas'; label: string; icon: React.ReactNode; color: string }
+  | { type: 'archived' | 'status'; status: ChangeStatus; label: string; icon: React.ReactNode; color: string };
 
 interface KanbanBoardProps {
   onCardClick: (change: Change) => void;
+  onIdeaClick?: (idea: Idea) => void;
   selectedSourceId: string | null;
   showArchived?: boolean;
   onOpenSettings?: () => void;
 }
 
-export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = false, onOpenSettings }: KanbanBoardProps) {
+export function KanbanBoard({ onCardClick, onIdeaClick, selectedSourceId, showArchived = false, onOpenSettings }: KanbanBoardProps) {
   const { changes, loading, error } = useChanges();
   const { ideas } = useIdeas();
   const { sources } = useSources();
@@ -72,10 +76,15 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('name-asc');
 
-  // Build columns array based on showArchived
-  const COLUMNS = showArchived
-    ? [...COLUMN_CONFIG, ARCHIVED_COLUMN]
-    : COLUMN_CONFIG;
+  // Build columns array based on showArchived - Ideas column is always first
+  const COLUMNS: Column[] = [
+    { type: 'ideas', ...IDEAS_COLUMN },
+    ...COLUMN_CONFIG.map(col => ({ type: 'status' as const, ...col })),
+  ];
+  
+  if (showArchived) {
+    COLUMNS.push({ type: 'archived', status: 'archived', ...ARCHIVED_COLUMN });
+  }
 
   // Reset active column index if it's out of bounds when columns change
   useEffect(() => {
@@ -97,6 +106,9 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
     if (!showArchived) {
       result = result.filter((c) => c.status !== 'archived');
     }
+    
+    // Filter out draft changes (now removed - use Ideas column instead)
+    result = result.filter((c) => c.status !== 'draft');
 
     // Apply search filter
     if (searchQuery) {
@@ -262,7 +274,9 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
   }
 
   const hasNoSources = sources.length === 0;
-  if (sortedChanges.length === 0) {
+  const hasAnyItems = sortedChanges.length > 0 || filteredIdeas.length > 0;
+  
+  if (!hasAnyItems) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <div className="w-20 h-20 rounded-2xl bg-muted/50 flex items-center justify-center">
@@ -279,14 +293,14 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
               : selectedSourceId
                 ? "No changes found for this project"
                 : searchQuery
-                  ? "No changes found matching your search"
-                  : "No changes found"
+                  ? "No items found matching your search"
+                  : "No items found"
             }
           </div>
           <p className="text-sm text-muted-foreground/70 mt-1">
             {hasNoSources 
               ? "Add a source to get started" 
-              : "Try adjusting your filters"
+              : "Try adjusting your filters or create a new idea"
             }
           </p>
         </div>
@@ -296,7 +310,7 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
             Configure Sources
           </Button>
         )}
-        {searchQuery && sortedChanges.length === 0 && !hasNoSources && (
+        {searchQuery && !hasAnyItems && !hasNoSources && (
           <Button onClick={() => setSearchQuery('')} variant="outline" size="sm">
             Clear Search
           </Button>
@@ -308,10 +322,19 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
   // Mobile: Single column with swipe
   if (isMobile) {
     const activeColumn = COLUMNS[activeColumnIndex];
-    const columnChanges = sortedChanges.filter((c) => c.status === activeColumn.status);
-    const showIdeas = activeColumn.status === 'draft';
-    const colIdeas = showIdeas ? filteredIdeas : [];
-    const totalCount = columnChanges.length + colIdeas.length;
+    const isIdeasColumn = (activeColumn as any).type === 'ideas';
+    const isArchivedColumn = (activeColumn as any).type === 'archived';
+    
+    let columnItems: (Change | Idea)[] = [];
+    if (isIdeasColumn) {
+      columnItems = filteredIdeas;
+    } else if (isArchivedColumn) {
+      columnItems = sortedChanges.filter((c) => c.status === 'archived');
+    } else {
+      columnItems = sortedChanges.filter((c) => c.status === (activeColumn as { status: ChangeStatus }).status);
+    }
+    
+    const totalCount = columnItems.length;
 
     return (
       <div className="flex flex-col h-[calc(100dvh-8rem)]">
@@ -344,14 +367,24 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
             {/* Pill tabs */}
             <div className="flex bg-muted/50 rounded-full p-1 gap-0.5">
               {COLUMNS.map((col, idx) => {
-                const colChanges = sortedChanges.filter((c) => c.status === col.status);
-                const showIdeas = col.status === 'draft';
-                const colIdeas = showIdeas ? filteredIdeas : [];
-                const totalCount = colChanges.length + colIdeas.length;
+                const isIdeasColumn = (col as any).type === 'ideas';
+                const isArchivedColumn = (col as any).type === 'archived';
+                let colItems: (Change | Idea)[] = [];
+                
+                if (isIdeasColumn) {
+                  colItems = filteredIdeas;
+                } else if (isArchivedColumn) {
+                  colItems = sortedChanges.filter((c) => c.status === 'archived');
+                } else {
+                  // Must be a status column
+                  colItems = sortedChanges.filter((c) => c.status === (col as { status: ChangeStatus }).status);
+                }
+                
+                const totalCount = colItems.length;
                 
                 return (
                   <button
-                    key={col.status}
+                    key={idx}
                     onClick={() => {
                       if (!isAnimating) {
                         setIsAnimating(true);
@@ -403,49 +436,50 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
-          <div 
-            className={cn(
-              "h-full px-1 overflow-y-auto",
-              isAnimating && "transition-transform duration-200 ease-out"
-            )}
-            style={{ 
-              transform: `translateX(${dragOffset}px)`,
-              opacity: Math.max(0.4, 1 - Math.abs(dragOffset) / 400)
-            }}
-           >
-             <div className="flex flex-col gap-3 pb-4">
-               {/* Draft changes */}
-               {columnChanges.map((change) => (
-                 <ChangeCard
-                   key={change.id}
-                   change={change}
-                   onClick={() => onCardClick(change)}
-                 />
-               ))}
-               
-                {/* Ideas */}
-                {colIdeas.map((idea) => (
-                  <IdeaCard
-                    key={idea.id}
-                    idea={idea}
-                    onClick={() => {
-                      // TODO: Handle idea click - maybe show details or edit
-                      console.log('Idea clicked:', idea);
-                    }}
-                  />
-                ))}
-               
-               {totalCount === 0 && (
-                 <div className="flex flex-col items-center justify-center py-16 text-center">
-                   <div className={cn("mb-3", activeColumn.color)}>
-                     {activeColumn.icon}
-                   </div>
-                   <div className="text-sm text-muted-foreground">
-                     No items in {activeColumn.label}
-                   </div>
-                 </div>
-               )}
-             </div>
+           <div 
+             className={cn(
+               "h-full px-1 overflow-y-auto",
+               isAnimating && "transition-transform duration-200 ease-out"
+             )}
+             style={{ 
+               transform: `translateX(${dragOffset}px)`,
+               opacity: Math.max(0.4, 1 - Math.abs(dragOffset) / 400)
+             }}
+            >
+              <div className="flex flex-col gap-3 pb-4">
+                {columnItems.map((item) => {
+                  const isIdea = 'title' in item && 'description' in item;
+                  
+                  if (isIdea) {
+                    return (
+                      <IdeaCard
+                        key={item.id}
+                        idea={item}
+                        onClick={() => onIdeaClick?.(item)}
+                      />
+                    );
+                  } else {
+                    return (
+                      <ChangeCard
+                        key={item.id}
+                        change={item}
+                        onClick={() => onCardClick(item)}
+                      />
+                    );
+                  }
+                })}
+                
+                {totalCount === 0 && (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className={cn("mb-3", activeColumn.color)}>
+                      {activeColumn.icon}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      No items in {activeColumn.label}
+                    </div>
+                  </div>
+                )}
+              </div>
           </div>
         </div>
       </div>
@@ -467,17 +501,25 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
 
       {/* Kanban columns */}
       <div className="flex gap-4 pb-4">
-        {COLUMNS.map(({ status, label, icon, color }) => {
-          const columnChanges = sortedChanges.filter((c) => c.status === status);
+        {COLUMNS.map((column) => {
+          const isIdeasColumn = (column as any).type === 'ideas';
+          const isArchivedColumn = (column as any).type === 'archived';
+          let columnItems: (Change | Idea)[] = [];
           
-          // For draft column, also include ideas
-          const showIdeas = status === 'draft';
-          const columnIdeas = showIdeas ? filteredIdeas : [];
-          const totalCount = columnChanges.length + columnIdeas.length;
+          if (isIdeasColumn) {
+            columnItems = filteredIdeas;
+          } else if (isArchivedColumn) {
+            columnItems = sortedChanges.filter((c) => c.status === 'archived');
+          } else {
+            columnItems = sortedChanges.filter((c) => c.status === (column as { status: ChangeStatus }).status);
+          }
+          
+          const { label, icon, color } = column;
+          const totalCount = columnItems.length;
           
           return (
             <div
-              key={status}
+              key={label}
               className="flex-1 min-w-0 flex flex-col"
             >
               {/* Column header */}
@@ -495,26 +537,27 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
               
               {/* Column content */}
               <div className="flex flex-col gap-3 flex-1 overflow-y-auto max-h-[calc(100dvh-14rem)] pr-1">
-                {/* Draft changes */}
-                {columnChanges.map((change) => (
-                  <ChangeCard
-                    key={change.id}
-                    change={change}
-                    onClick={() => onCardClick(change)}
-                  />
-                ))}
-                
-                {/* Ideas */}
-                {columnIdeas.map((idea: Idea) => (
-                  <IdeaCard
-                    key={idea.id}
-                    idea={idea}
-                    onClick={() => {
-                      // TODO: Handle idea click - maybe show details or edit
-                      console.log('Idea clicked:', idea);
-                    }}
-                  />
-                ))}
+                {columnItems.map((item) => {
+                  const isIdea = 'title' in item && 'description' in item;
+                  
+                  if (isIdea) {
+                    return (
+                      <IdeaCard
+                        key={item.id}
+                        idea={item}
+                        onClick={() => onIdeaClick?.(item)}
+                      />
+                    );
+                  } else {
+                    return (
+                      <ChangeCard
+                        key={item.id}
+                        change={item}
+                        onClick={() => onCardClick(item)}
+                      />
+                    );
+                  }
+                })}
                 
                 {totalCount === 0 && (
                   <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border/50 bg-muted/20">

@@ -190,6 +190,16 @@ export async function deleteIdea(id: string): Promise<void> {
   });
 }
 
+export async function updateIdea(id: string, title: string, description: string): Promise<Idea> {
+  return fetchJson<Idea>(`${API_BASE}/ideas/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title, description }),
+  });
+}
+
 export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStatus } {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
 
