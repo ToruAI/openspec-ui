@@ -58,3 +58,13 @@ export interface SpecDetail {
   path: string;
   content: string;
 }
+
+export interface Idea {
+  id: string;
+  sourceId: string;
+  projectId: string | null;
+  title: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}

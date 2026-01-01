@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, State},
     http::{header, StatusCode, Uri},
     response::{sse::Event, IntoResponse, Json, Sse},
-    routing::{get, put},
+    routing::{delete, get, put},
     Router,
 };
 use clap::Parser as ClapParser;
@@ -15,7 +15,7 @@ use config_manager::{AppState, ConfigManager, ConfigResponse};
 use futures::stream::{self, Stream};
 use notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebouncedEvent};
-use parser::{Change, ChangeDetail, Spec, SpecDetail};
+use parser::{Change, ChangeDetail, Idea, Spec, SpecDetail};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -81,6 +81,19 @@ struct ChangesResponse {
 #[derive(Serialize)]
 struct SpecsResponse {
     specs: Vec<Spec>,
+}
+
+#[derive(Serialize)]
+struct IdeasResponse {
+    ideas: Vec<Idea>,
+}
+
+#[derive(Deserialize)]
+struct CreateIdeaRequest {
+    title: String,
+    description: String,
+    #[serde(default)]
+    project_id: Option<String>,
 }
 
 // === Handlers ===
@@ -184,6 +197,95 @@ async fn get_spec_detail(
     }
 
     Err(StatusCode::NOT_FOUND)
+}
+
+async fn get_ideas(State(state): State<AppState>) -> Json<IdeasResponse> {
+    let mut all_ideas = Vec::new();
+    let sources = state.get_sources().await;
+
+    for source in sources.iter().filter(|s| s.valid) {
+        let ideas = parser::scan_ideas(&source.path, &source.id);
+        all_ideas.extend(ideas);
+    }
+
+    Json(IdeasResponse { ideas: all_ideas })
+}
+
+async fn create_idea(
+    State(state): State<AppState>,
+    Json(req): Json<CreateIdeaRequest>,
+) -> Result<Json<Idea>, (StatusCode, Json<ErrorResponse>)> {
+    // For now, create in the first valid source
+    let sources = state.get_sources().await;
+    let source = sources
+        .iter()
+        .find(|s| s.valid)
+        .ok_or_else(|| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "No valid source configured".to_string(),
+            }),
+        ))?;
+
+    let id = format!("idea-{}", chrono::Utc::now().timestamp());
+    let idea = parser::save_idea(
+        &source.path,
+        &id,
+        &req.title,
+        &req.description,
+        req.project_id.as_deref()
+    )
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to save idea: {}", e),
+            }),
+        ))?;
+
+    let _ = state.update_tx.send(());
+
+    Ok(Json(idea))
+}
+
+async fn delete_idea(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let parts: Vec<&str> = id.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid idea ID format".to_string(),
+            }),
+        ));
+    }
+
+    let source_id = parts[0];
+    let idea_id = parts[1];
+
+    let sources = state.get_sources().await;
+    let source = sources
+        .iter()
+        .find(|s| s.id == source_id && s.valid)
+        .ok_or_else(|| (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Source not found".to_string(),
+            }),
+        ))?;
+
+    parser::delete_idea(&source.path, idea_id)
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to delete idea: {}", e),
+            }),
+        ))?;
+
+    let _ = state.update_tx.send(());
+
+    Ok(StatusCode::OK)
 }
 
 async fn get_config(State(state): State<AppState>) -> Result<Json<ConfigResponse>, StatusCode> {
@@ -440,6 +542,8 @@ async fn main() {
         .route("/api/changes/{id}", get(get_change_detail))
         .route("/api/specs", get(get_specs))
         .route("/api/specs/{id}", get(get_spec_detail))
+        .route("/api/ideas", get(get_ideas).post(create_idea))
+        .route("/api/ideas/{id}", delete(delete_idea))
         .route("/api/events", get(sse_handler))
         .layer(cors)
         .with_state(state);

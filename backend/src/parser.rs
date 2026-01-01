@@ -1,5 +1,5 @@
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use walkdir::WalkDir;
 
@@ -73,6 +73,82 @@ pub struct SpecDetail {
     pub source_id: String,
     pub path: String,
     pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Idea {
+    pub id: String,
+    pub source_id: String,
+    pub project_id: Option<String>,
+    pub title: String,
+    pub description: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IdeaFrontmatter {
+    id: String,
+    #[serde(default)]
+    project_id: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+fn parse_idea_frontmatter(content: &str) -> Option<IdeaFrontmatter> {
+    let lines: Vec<&str> = content.lines().collect();
+    
+    if !lines.get(0).map(|l| l.trim() == "---").unwrap_or(false) {
+        return None;
+    }
+    
+    let mut frontmatter_lines = Vec::new();
+    let mut i = 1;
+    
+    while i < lines.len() {
+        let line = lines[i].trim();
+        if line == "---" {
+            break;
+        }
+        frontmatter_lines.push(lines[i]);
+        i += 1;
+    }
+    
+    serde_yaml::from_str::<IdeaFrontmatter>(&frontmatter_lines.join("\n")).ok()
+}
+
+fn extract_idea_title_and_description(content: &str) -> (String, String) {
+    let lines: Vec<&str> = content.lines().collect();
+    
+    let mut frontmatter_end = 0;
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 && line.trim() == "---" {
+            frontmatter_end = i + 1;
+            break;
+        }
+    }
+    
+    let content_lines: Vec<&str> = lines.iter().skip(frontmatter_end).copied().collect();
+    
+    let title = content_lines
+        .iter()
+        .find(|l| l.starts_with("# "))
+        .map(|l| l.trim_start_matches("# ").trim().to_string())
+        .unwrap_or_else(|| "Untitled Idea".to_string());
+    
+    let description = content_lines
+        .iter()
+        .skip_while(|l| l.starts_with("# "))
+        .skip_while(|l| l.trim().is_empty())
+        .take_while(|l| !l.starts_with("#"))
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    
+    (title, description)
 }
 
 /// Parse tasks.md content and count [x] vs [ ] checkboxes
@@ -339,6 +415,101 @@ pub fn get_spec_detail(source_path: &Path, source_id: &str, spec_path: &str) -> 
         path: spec_path.to_string(),
         content,
     })
+}
+
+/// Scan ideas/ directory for all ideas
+pub fn scan_ideas(source_path: &Path, source_id: &str) -> Vec<Idea> {
+    let mut ideas = Vec::new();
+    let ideas_path = source_path.join("ideas");
+
+    if !ideas_path.exists() || !ideas_path.is_dir() {
+        return ideas;
+    }
+
+    for entry in std::fs::read_dir(&ideas_path).into_iter().flatten() {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            
+            if path.is_file() && path.extension().map_or(false, |e| e == "md") {
+                if let Some(content) = std::fs::read_to_string(&path).ok() {
+                    if let Some(frontmatter) = parse_idea_frontmatter(&content) {
+                        let (title, description) = extract_idea_title_and_description(&content);
+                        ideas.push(Idea {
+                            id: format!("{}/{}", source_id, frontmatter.id),
+                            source_id: source_id.to_string(),
+                            project_id: frontmatter.project_id,
+                            title,
+                            description,
+                            created_at: frontmatter.created_at,
+                            updated_at: frontmatter.updated_at,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    ideas.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    ideas
+}
+
+/// Save idea to file system
+pub fn save_idea(source_path: &Path, id: &str, title: &str, description: &str, project_id: Option<&str>) -> std::io::Result<Idea> {
+    let ideas_path = source_path.join("ideas");
+    
+    if !ideas_path.exists() {
+        std::fs::create_dir_all(&ideas_path)?;
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    
+    let project_id_line = if let Some(pid) = project_id {
+        format!("projectId: {}", pid)
+    } else {
+        String::new()
+    };
+    
+    let content = format!(
+        r#"---
+id: {}
+{}
+createdAt: {}
+updatedAt: {}
+---
+
+# {}
+
+{}"#,
+        id, project_id_line, now, now, title, description
+    );
+
+    let idea_path = ideas_path.join(format!("{}.md", id));
+    std::fs::write(&idea_path, content)?;
+
+    Ok(Idea {
+        id: id.to_string(),
+        source_id: source_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        project_id: project_id.map(|s| s.to_string()),
+        title: title.to_string(),
+        description: description.to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+/// Delete idea from file system
+pub fn delete_idea(source_path: &Path, id: &str) -> std::io::Result<()> {
+    let idea_path = source_path.join("ideas").join(format!("{}.md", id));
+    
+    if idea_path.exists() {
+        std::fs::remove_file(idea_path)?;
+    }
+    
+    Ok(())
 }
 
 #[cfg(test)]

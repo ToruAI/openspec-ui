@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Source, Change, ChangeDetail, Spec, SpecDetail } from '../types';
+import type { Source, Change, ChangeDetail, Spec, SpecDetail, Idea } from '../types';
 
 const API_BASE = '/api';
 
@@ -147,6 +147,47 @@ export function useSpec(id: string | null) {
   }, [refetch]);
 
   return { spec, loading, error, refetch };
+}
+
+export function useIdeas() {
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const refetch = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await fetchJson<{ ideas: Idea[] }>(`${API_BASE}/ideas`);
+      setIdeas(data.ideas);
+      setError(null);
+    } catch (e) {
+      setError(e as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  return { ideas, loading, error, refetch };
+}
+
+export async function createIdea(title: string, description: string, projectId?: string | null): Promise<Idea> {
+  return fetchJson<Idea>(`${API_BASE}/ideas`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title, description, projectId }),
+  });
+}
+
+export async function deleteIdea(id: string): Promise<void> {
+  await fetchJson<void>(`${API_BASE}/ideas/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 }
 
 export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStatus } {

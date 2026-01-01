@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import type { TouchEvent } from 'react';
-import { useChanges, useSources } from '../hooks/useApi';
+import { useChanges, useSources, useIdeas } from '../hooks/useApi';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import type { Change, ChangeStatus } from '../types';
+import type { Change, ChangeStatus, Idea } from '../types';
 import { ChangeCard } from './ChangeCard';
+import { IdeaCard } from './IdeaCard';
 import { ColumnSkeleton } from './LoadingSkeleton';
 import { SearchBar } from './SearchBar';
 import { SortDropdown, type SortOption } from './SortDropdown';
@@ -12,7 +13,7 @@ import { cn } from '@/lib/utils';
 import { 
   ChevronLeft, 
   ChevronRight, 
-  FileEdit, 
+  Lightbulb, 
   ListTodo, 
   Loader, 
   CheckCircle2, 
@@ -24,9 +25,9 @@ import {
 const COLUMN_CONFIG: { status: ChangeStatus; label: string; icon: React.ReactNode; color: string }[] = [
   { 
     status: 'draft', 
-    label: 'Draft', 
-    icon: <FileEdit className="h-4 w-4" />,
-    color: 'text-slate-500'
+    label: 'Ideas', 
+    icon: <Lightbulb className="h-4 w-4" />,
+    color: 'text-violet-500'
   },
   { 
     status: 'todo', 
@@ -64,6 +65,7 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = false, onOpenSettings }: KanbanBoardProps) {
   const { changes, loading, error } = useChanges();
+  const { ideas } = useIdeas();
   const { sources } = useSources();
   const isMobile = useIsMobile();
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
@@ -107,6 +109,28 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
 
     return result;
   }, [changes, selectedSourceId, showArchived, searchQuery]);
+
+  // Filter ideas by selected source
+  const filteredIdeas = useMemo(() => {
+    let result = ideas;
+    
+    // Filter by selected source
+    if (selectedSourceId) {
+      result = result.filter((idea) => idea.sourceId === selectedSourceId);
+    }
+    
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter((idea) =>
+        idea.title.toLowerCase().includes(query) ||
+        idea.description.toLowerCase().includes(query) ||
+        idea.sourceId.toLowerCase().includes(query)
+      );
+    }
+    
+    return result;
+  }, [ideas, selectedSourceId, searchQuery]);
 
   // Apply sorting
   const sortedChanges = useMemo(() => {
@@ -285,6 +309,9 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
   if (isMobile) {
     const activeColumn = COLUMNS[activeColumnIndex];
     const columnChanges = sortedChanges.filter((c) => c.status === activeColumn.status);
+    const showIdeas = activeColumn.status === 'draft';
+    const colIdeas = showIdeas ? filteredIdeas : [];
+    const totalCount = columnChanges.length + colIdeas.length;
 
     return (
       <div className="flex flex-col h-[calc(100dvh-8rem)]">
@@ -318,6 +345,10 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
             <div className="flex bg-muted/50 rounded-full p-1 gap-0.5">
               {COLUMNS.map((col, idx) => {
                 const colChanges = sortedChanges.filter((c) => c.status === col.status);
+                const showIdeas = col.status === 'draft';
+                const colIdeas = showIdeas ? filteredIdeas : [];
+                const totalCount = colChanges.length + colIdeas.length;
+                
                 return (
                   <button
                     key={col.status}
@@ -334,7 +365,7 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
                         ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground"
                     )}
-                    aria-label={`${col.label} (${colChanges.length})`}
+                    aria-label={`${col.label} (${totalCount})`}
                   >
                     <span className={col.color}>{col.icon}</span>
                     <span className="hidden xs:inline">{col.label.split(' ')[0]}</span>
@@ -342,9 +373,10 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
                 );
               })}
             </div>
+            
             {/* Count badge */}
             <span className="text-xs text-muted-foreground">
-              {columnChanges.length} {columnChanges.length === 1 ? 'item' : 'items'}
+              {totalCount} {totalCount === 1 ? 'item' : 'items'}
             </span>
           </div>
 
@@ -380,26 +412,40 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
               transform: `translateX(${dragOffset}px)`,
               opacity: Math.max(0.4, 1 - Math.abs(dragOffset) / 400)
             }}
-          >
-            <div className="flex flex-col gap-3 pb-4">
-              {columnChanges.map((change) => (
-                <ChangeCard
-                  key={change.id}
-                  change={change}
-                  onClick={() => onCardClick(change)}
-                />
-              ))}
-              {columnChanges.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <div className={cn("mb-3", activeColumn.color)}>
-                    {activeColumn.icon}
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    No items in {activeColumn.label}
-                  </div>
-                </div>
-              )}
-            </div>
+           >
+             <div className="flex flex-col gap-3 pb-4">
+               {/* Draft changes */}
+               {columnChanges.map((change) => (
+                 <ChangeCard
+                   key={change.id}
+                   change={change}
+                   onClick={() => onCardClick(change)}
+                 />
+               ))}
+               
+                {/* Ideas */}
+                {colIdeas.map((idea) => (
+                  <IdeaCard
+                    key={idea.id}
+                    idea={idea}
+                    onClick={() => {
+                      // TODO: Handle idea click - maybe show details or edit
+                      console.log('Idea clicked:', idea);
+                    }}
+                  />
+                ))}
+               
+               {totalCount === 0 && (
+                 <div className="flex flex-col items-center justify-center py-16 text-center">
+                   <div className={cn("mb-3", activeColumn.color)}>
+                     {activeColumn.icon}
+                   </div>
+                   <div className="text-sm text-muted-foreground">
+                     No items in {activeColumn.label}
+                   </div>
+                 </div>
+               )}
+             </div>
           </div>
         </div>
       </div>
@@ -423,6 +469,12 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
       <div className="flex gap-4 pb-4">
         {COLUMNS.map(({ status, label, icon, color }) => {
           const columnChanges = sortedChanges.filter((c) => c.status === status);
+          
+          // For draft column, also include ideas
+          const showIdeas = status === 'draft';
+          const columnIdeas = showIdeas ? filteredIdeas : [];
+          const totalCount = columnChanges.length + columnIdeas.length;
+          
           return (
             <div
               key={status}
@@ -436,13 +488,14 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
                     {label}
                   </h2>
                   <span className="ml-auto text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
-                    {columnChanges.length}
+                    {totalCount}
                   </span>
                 </div>
               </div>
               
               {/* Column content */}
               <div className="flex flex-col gap-3 flex-1 overflow-y-auto max-h-[calc(100dvh-14rem)] pr-1">
+                {/* Draft changes */}
                 {columnChanges.map((change) => (
                   <ChangeCard
                     key={change.id}
@@ -450,7 +503,20 @@ export function KanbanBoard({ onCardClick, selectedSourceId, showArchived = fals
                     onClick={() => onCardClick(change)}
                   />
                 ))}
-                {columnChanges.length === 0 && (
+                
+                {/* Ideas */}
+                {columnIdeas.map((idea: Idea) => (
+                  <IdeaCard
+                    key={idea.id}
+                    idea={idea}
+                    onClick={() => {
+                      // TODO: Handle idea click - maybe show details or edit
+                      console.log('Idea clicked:', idea);
+                    }}
+                  />
+                ))}
+                
+                {totalCount === 0 && (
                   <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border/50 bg-muted/20">
                     <span className={cn("mb-2 opacity-40", color)}>{icon}</span>
                     <div className="text-xs text-muted-foreground/70">
