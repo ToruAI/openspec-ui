@@ -31,6 +31,7 @@ use tower_http::{
     cors::{Any, CorsLayer},
     services::ServeDir,
 };
+use tower_http::cors::AllowOrigin;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(RustEmbed)]
@@ -591,10 +592,46 @@ async fn main() {
         .and_then(|p| p.parse().ok())
         .unwrap_or(config_response.port);
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // Configure CORS from environment variable
+    let cors = if let Ok(origins_str) = env::var("CORS_ALLOWED_ORIGINS") {
+        // Parse comma-separated origins
+        let origins: Vec<String> = origins_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if origins.is_empty() {
+            tracing::warn!("CORS_ALLOWED_ORIGINS is set but empty, using safe defaults");
+            // Safe defaults: localhost only
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::exact(
+                    "http://localhost:3000".parse().unwrap()
+                ))
+                .allow_methods(Any)
+                .allow_headers(Any)
+        } else {
+            tracing::info!("Configured CORS origins: {:?}", origins);
+            let allow_origin = AllowOrigin::list(
+                origins.iter()
+                    .filter_map(|s| s.parse().ok())
+                    .collect::<Vec<_>>()
+            );
+            CorsLayer::new()
+                .allow_origin(allow_origin)
+                .allow_methods(Any)
+                .allow_headers(Any)
+        }
+    } else {
+        // Default to safe localhost-only origins if env var is not set
+        tracing::info!("CORS_ALLOWED_ORIGINS not set, using safe defaults (localhost only)");
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::exact(
+                "http://localhost:3000".parse().unwrap()
+            ))
+            .allow_methods(Any)
+            .allow_headers(Any)
+    };
 
     let mut app = Router::new()
         .route("/api/health", get(health))

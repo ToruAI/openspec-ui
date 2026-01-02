@@ -2,6 +2,10 @@
 name = "openspec-ui"
 version = "0.1.0"
 edition = "2021"
+authors = ["ToruGuy"]
+repository = "https://github.com/ToruAI/openspec-ui"
+license = "MIT"
+description = "A read-only dashboard for monitoring OpenSpec changes and specifications across multiple repositories."
 
 [dependencies]
 axum = { version = "0.8", features = ["macros"] }

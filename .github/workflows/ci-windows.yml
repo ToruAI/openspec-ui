@@ -1,0 +1,118 @@
+name: CI - Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (leave empty to use VERSION file)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-test:
+    name: Build and Test on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version from VERSION file
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            "version=${{ github.event.inputs.version }}" >> $env:GITHUB_OUTPUT
+          } else {
+            $version = Get-Content VERSION -Raw
+            "version=$version" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          npm test -- --run
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          cargo test --verbose
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Build backend
+        run: |
+          cd backend
+          cargo build --release
+
+      - name: Determine architecture
+        id: arch
+        shell: pwsh
+        run: |
+          $arch = $env:PROCESSOR_ARCHITECTURE
+          if ($arch -eq "AMD64") {
+            "arch=x86_64" >> $env:GITHUB_OUTPUT
+          } elseif ($arch -eq "ARM64") {
+            "arch=aarch64" >> $env:GITHUB_OUTPUT
+          } else {
+            "arch=$arch" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Create release archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release
+          Copy-Item backend\target\release\openspec-ui.exe release\
+          Copy-Item -Recurse frontend\dist release\frontend
+          Compress-Archive -Path release\* -DestinationPath "openspec-ui-v${{ steps.version.outputs.version }}-windows-${{ steps.arch.outputs.arch }}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openspec-ui-v${{ steps.version.outputs.version }}-windows-${{ steps.arch.outputs.arch }}
+          path: openspec-ui-v${{ steps.version.outputs.version }}-windows-${{ steps.arch.outputs.arch }}.zip
+          retention-days: 30

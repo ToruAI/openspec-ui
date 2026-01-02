@@ -1,0 +1,115 @@
+name: CI - Linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (leave empty to use VERSION file)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-test:
+    name: Build and Test on Linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version from VERSION file
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(cat VERSION | tr -d '\n')
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          npm test -- --run
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          cargo test --verbose
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Build backend
+        run: |
+          cd backend
+          cargo build --release
+
+      - name: Determine architecture
+        id: arch
+        run: |
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "aarch64" ]; then
+            echo "arch=aarch64" >> $GITHUB_OUTPUT
+          else
+            echo "arch=x86_64" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release archive
+        run: |
+          mkdir -p release
+          cp backend/target/release/openspec-ui release/
+          cp -r frontend/dist release/frontend
+          cd release
+          tar -czf ../openspec-ui-v${{ steps.version.outputs.version }}-linux-${{ steps.arch.outputs.arch }}.tar.gz *
+          cd ..
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openspec-ui-v${{ steps.version.outputs.version }}-linux-${{ steps.arch.outputs.arch }}
+          path: openspec-ui-v${{ steps.version.outputs.version }}-linux-${{ steps.arch.outputs.arch }}.tar.gz
+          retention-days: 30
