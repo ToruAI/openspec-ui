@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Source, Change, ChangeDetail, Spec, SpecDetail, Idea } from '../types';
 
 const API_BASE = '/api';
@@ -17,7 +17,10 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     }
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
-  return res.json();
+  
+  // Handle empty responses
+  const text = await res.text();
+  return text ? JSON.parse(text) : {} as T;
 }
 
 export function useSources() {
@@ -202,6 +205,12 @@ export async function updateIdea(id: string, title: string, description: string)
 
 export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStatus } {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const onUpdateRef = useRef(onUpdate);
+
+  // Keep the ref up to date
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
 
   useEffect(() => {
     const eventSource = new EventSource(`${API_BASE}/events`);
@@ -212,7 +221,7 @@ export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStat
 
     eventSource.addEventListener('update', () => {
       setConnectionStatus('connected');
-      onUpdate();
+      onUpdateRef.current();
     });
 
     eventSource.onerror = () => {
@@ -227,7 +236,7 @@ export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStat
     return () => {
       eventSource.close();
     };
-  }, [onUpdate]);
+  }, []); // No dependencies - connection stays stable
 
   return { connectionStatus };
 }

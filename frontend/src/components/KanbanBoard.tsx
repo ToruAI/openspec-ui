@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import type { TouchEvent } from 'react';
-import { useChanges, useSources, useIdeas } from '../hooks/useApi';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import type { Change, ChangeStatus, Idea } from '../types';
+import type { Source, Change, ChangeStatus, Idea } from '../types';
 import { ChangeCard } from './ChangeCard';
 import { IdeaCard } from './IdeaCard';
 import { ColumnSkeleton } from './LoadingSkeleton';
@@ -60,6 +59,11 @@ type Column =
   | { type: 'archived' | 'status'; status: ChangeStatus; label: string; icon: React.ReactNode; color: string };
 
 interface KanbanBoardProps {
+  changes: Change[];
+  ideas: Idea[];
+  sources: Source[];
+  loading?: boolean;
+  error?: Error | null;
   onCardClick: (change: Change) => void;
   onIdeaClick?: (idea: Idea) => void;
   selectedSourceId: string | null;
@@ -67,10 +71,18 @@ interface KanbanBoardProps {
   onOpenSettings?: () => void;
 }
 
-export function KanbanBoard({ onCardClick, onIdeaClick, selectedSourceId, showArchived = false, onOpenSettings }: KanbanBoardProps) {
-  const { changes, loading, error } = useChanges();
-  const { ideas } = useIdeas();
-  const { sources } = useSources();
+export function KanbanBoard({ 
+  changes, 
+  ideas, 
+  sources,
+  loading = false, 
+  error = null, 
+  onCardClick, 
+  onIdeaClick, 
+  selectedSourceId, 
+  showArchived = false, 
+  onOpenSettings 
+}: KanbanBoardProps) {
   const isMobile = useIsMobile();
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -448,7 +460,8 @@ export function KanbanBoard({ onCardClick, onIdeaClick, selectedSourceId, showAr
             >
               <div className="flex flex-col gap-3 pb-4">
                 {columnItems.map((item) => {
-                  const isIdea = 'title' in item && 'description' in item;
+                  // Type guard based on unique properties: Idea doesn't have 'status'
+                  const isIdea = !('status' in item);
                   
                   if (isIdea) {
                     return (
@@ -538,7 +551,8 @@ export function KanbanBoard({ onCardClick, onIdeaClick, selectedSourceId, showAr
               {/* Column content */}
               <div className="flex flex-col gap-3 flex-1 overflow-y-auto max-h-[calc(100dvh-14rem)] pr-1">
                 {columnItems.map((item) => {
-                  const isIdea = 'title' in item && 'description' in item;
+                  // Type guard based on unique properties: Idea doesn't have 'status'
+                  const isIdea = !('status' in item);
                   
                   if (isIdea) {
                     return (

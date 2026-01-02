@@ -132,21 +132,28 @@ fn extract_idea_title_and_description(content: &str) -> (String, String) {
     
     let content_lines: Vec<&str> = lines.iter().skip(frontmatter_end).copied().collect();
     
-    let title = content_lines
+    // Find the first H1 header to use as title
+    let title_idx = content_lines
         .iter()
-        .find(|l| l.starts_with("# "))
-        .map(|l| l.trim_start_matches("# ").trim().to_string())
+        .position(|l| l.starts_with("# "));
+        
+    let title = title_idx
+        .map(|i| content_lines[i].trim_start_matches("# ").trim().to_string())
         .unwrap_or_else(|| "Untitled Idea".to_string());
+    
+    // Description is everything after the title
+    // If no title found, it's everything
+    let start_idx = title_idx.map(|i| i + 1).unwrap_or(0);
     
     let description = content_lines
         .iter()
-        .skip_while(|l| l.starts_with("# "))
+        .skip(start_idx)
         .skip_while(|l| l.trim().is_empty())
-        .take_while(|l| !l.starts_with("#"))
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty())
+        .copied()
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("\n")
+        .trim()
+        .to_string();
     
     (title, description)
 }

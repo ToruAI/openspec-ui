@@ -89,6 +89,7 @@ struct IdeasResponse {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CreateIdeaRequest {
     title: String,
     description: String,
@@ -221,19 +222,32 @@ async fn create_idea(
     State(state): State<AppState>,
     Json(req): Json<CreateIdeaRequest>,
 ) -> Result<Json<Idea>, (StatusCode, Json<ErrorResponse>)> {
-    // For now, create in the first valid source
+    // Find target source
     let sources = state.get_sources().await;
-    let source = sources
-        .iter()
-        .find(|s| s.valid)
-        .ok_or_else(|| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "No valid source configured".to_string(),
-            }),
-        ))?;
+    let source = if let Some(project_id) = &req.project_id {
+        sources
+            .iter()
+            .find(|s| s.id == *project_id && s.valid)
+            .ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Project source '{}' not found", project_id),
+                }),
+            ))?
+    } else {
+        // Default to first valid source if none specified
+        sources
+            .iter()
+            .find(|s| s.valid)
+            .ok_or_else(|| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "No valid source configured".to_string(),
+                }),
+            ))?
+    };
 
-    let id = format!("idea-{}", chrono::Utc::now().timestamp());
+    let id = format!("idea-{}", chrono::Utc::now().timestamp_millis());
     let idea = parser::save_idea(
         &source.path,
         &source.id,
@@ -414,7 +428,7 @@ async fn sse_handler(
     let stream = stream::unfold(rx, |mut rx| async move {
         match rx.recv().await {
             Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {
-                Some((Ok(Event::default().data("update")), rx))
+                Some((Ok(Event::default().event("update").data("changed")), rx))
             }
             Err(_) => None,
         }
