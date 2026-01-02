@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import type { Source, Change, ChangeDetail, Spec, SpecDetail } from '../types';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { Source, Change, ChangeDetail, Spec, SpecDetail, Idea } from '../types';
 
 const API_BASE = '/api';
 
@@ -17,7 +17,10 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     }
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
-  return res.json();
+  
+  // Handle empty responses
+  const text = await res.text();
+  return text ? JSON.parse(text) : {} as T;
 }
 
 export function useSources() {
@@ -149,8 +152,65 @@ export function useSpec(id: string | null) {
   return { spec, loading, error, refetch };
 }
 
+export function useIdeas() {
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const refetch = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await fetchJson<{ ideas: Idea[] }>(`${API_BASE}/ideas`);
+      setIdeas(data.ideas);
+      setError(null);
+    } catch (e) {
+      setError(e as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  return { ideas, loading, error, refetch };
+}
+
+export async function createIdea(title: string, description: string, projectId?: string | null): Promise<Idea> {
+  return fetchJson<Idea>(`${API_BASE}/ideas`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title, description, projectId }),
+  });
+}
+
+export async function deleteIdea(id: string): Promise<void> {
+  await fetchJson<void>(`${API_BASE}/ideas/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function updateIdea(id: string, title: string, description: string): Promise<Idea> {
+  return fetchJson<Idea>(`${API_BASE}/ideas/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title, description }),
+  });
+}
+
 export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStatus } {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const onUpdateRef = useRef(onUpdate);
+
+  // Keep the ref up to date
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
 
   useEffect(() => {
     const eventSource = new EventSource(`${API_BASE}/events`);
@@ -161,7 +221,7 @@ export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStat
 
     eventSource.addEventListener('update', () => {
       setConnectionStatus('connected');
-      onUpdate();
+      onUpdateRef.current();
     });
 
     eventSource.onerror = () => {
@@ -176,7 +236,7 @@ export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStat
     return () => {
       eventSource.close();
     };
-  }, [onUpdate]);
+  }, []); // No dependencies - connection stays stable
 
   return { connectionStatus };
 }

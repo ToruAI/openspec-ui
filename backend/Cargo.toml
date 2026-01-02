@@ -21,3 +21,5 @@ futures = "0.3"
 rust-embed = "8.9.0"
 mime_guess = "2.0.5"
 anyhow = "1.0.100"
+serde_yaml = "0.9"
+chrono = { version = "0.4", features = ["serde"] }

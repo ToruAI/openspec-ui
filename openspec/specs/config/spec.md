@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines how the OpenSpec UI binary is configured and launched.
-
 ## Requirements
 
 ### 1. CLI Arguments
@@ -29,3 +28,11 @@ Defines how the OpenSpec UI binary is configured and launched.
 - **Validation**: Warn on startup if a source path does not exist, but do not crash.
 - **Hot Reload (Config)**: Configuration changes (adding/removing sources via API) are applied immediately without server restart.
 - **Hot Reload (Content)**: Changes *within* the source directories are picked up automatically via file watchers.
+
+### 5. Idea Monitoring
+The system SHALL monitor the `ideas/` directory in each source for changes.
+
+- **Validation**: Warn if `ideas/` directory cannot be accessed.
+- **Hot Reload**: Changes to files in `ideas/` (creation, update, deletion) are detected automatically via file watchers.
+- **Parsing**: Valid markdown files in `ideas/` are parsed as ideas.
+

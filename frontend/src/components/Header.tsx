@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTheme } from '../hooks/useTheme';
-import { Menu, Settings, Sun, Moon, Sparkles } from 'lucide-react';
+import { Menu, Settings, Sun, Moon, Sparkles, Lightbulb } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -31,6 +31,7 @@ interface HeaderProps {
   showArchived?: boolean;
   onShowArchivedChange?: (show: boolean) => void;
   onOpenSettings?: () => void;
+  onOpenNewIdea?: () => void;
 }
 
 export function Header({
@@ -43,6 +44,7 @@ export function Header({
   showArchived = false,
   onShowArchivedChange,
   onOpenSettings,
+  onOpenNewIdea,
 }: HeaderProps) {
   const { theme, toggle } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -232,6 +234,36 @@ export function Header({
     );
   };
 
+  const NewIdeaButton = ({ mobile = false }: { mobile?: boolean }) => {
+    if (mobile) {
+      return (
+        <button
+          onClick={() => {
+            onOpenNewIdea?.();
+            setMobileMenuOpen(false);
+          }}
+          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-lg text-foreground hover:bg-muted transition-all duration-200"
+          aria-label="Create new idea"
+        >
+          <Lightbulb className="h-4 w-4" />
+          New Idea
+        </button>
+      );
+    }
+
+    return (
+      <Button
+        variant="default"
+        size="sm"
+        onClick={onOpenNewIdea}
+        className="h-9"
+      >
+        <Lightbulb className="h-4 w-4 mr-2" />
+        New Idea
+      </Button>
+    );
+  };
+
   const ShowArchivedToggle = ({ mobile = false }: { mobile?: boolean }) => {
     if (currentView !== 'kanban' || !onShowArchivedChange) {
       return null;
@@ -303,6 +335,11 @@ export function Header({
             {/* Source select - visible on all sizes */}
             <SourceSelect />
 
+            {/* New Idea button - visible on desktop */}
+            <div className="hidden md:block">
+              <NewIdeaButton />
+            </div>
+
             {/* Settings button - visible on desktop */}
             <div className="hidden md:block">
               <SettingsButton />
@@ -345,6 +382,7 @@ export function Header({
                       <div className="space-y-2">
                         <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Preferences</p>
                         <div className="space-y-1">
+                          <NewIdeaButton mobile />
                           <SettingsButton mobile />
                           <ThemeToggle mobile />
                         </div>
