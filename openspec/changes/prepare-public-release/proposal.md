@@ -3,7 +3,7 @@
 ## Summary
 Prepare the `openspec-ui` repository for public open-source release by establishing release infrastructure, project metadata, and legal compliance.
 
-## Motivation
+## Why
 The [Production Readiness Report](../../../docs/production-readiness.md) identified several blocking issues for open-sourcing:
 - **Legal**: Missing License.
 - **Quality**: No frontend tests, leaving the UI prone to regression.
@@ -14,7 +14,7 @@ The [Production Readiness Report](../../../docs/production-readiness.md) identif
 
 Addressing these ensures the project is professional, buildable by others, secure, and ready for distribution.
 
-## Proposed Solution
+## What Changes
 1. **Licensing**: Add MIT License.
 2. **Metadata**: Update `package.json` and `Cargo.toml` with `ToruGuy` as author and `https://github.com/ToruAI/openspec-ui` as the repository.
 3. **Versioning**: Implement Semantic Versioning (starting at `0.1.0`), using a root `VERSION` file as the source of truth for scripts.

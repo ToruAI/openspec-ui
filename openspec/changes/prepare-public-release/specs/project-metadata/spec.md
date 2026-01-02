@@ -1,6 +1,6 @@
 # Spec: Project Metadata
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Project Identity
 The project manifest files MUST contain correct open-source metadata.
