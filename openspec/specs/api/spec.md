@@ -174,3 +174,66 @@ Updates the source list at runtime with hot-reload support.
   "error": "Path does not exist: /invalid/path"
 }
 ```
+### 9. List Ideas
+`GET /api/ideas`
+
+Returns all ideas across all sources.
+
+**Response:**
+```json
+{
+  "ideas": [
+    {
+      "id": "brain-gate/idea-123",
+      "sourceId": "brain-gate",
+      "title": "Add Dark Mode",
+      "description": "We should support dark mode.",
+      "createdAt": "2024-01-01T12:00:00Z",
+      "updatedAt": "2024-01-01T12:00:00Z"
+    }
+  ]
+}
+```
+
+### 10. Create Idea
+`POST /api/ideas`
+
+Creates a new idea in the specified source's `ideas/` directory.
+
+**Request Body:**
+```json
+{
+  "sourceId": "brain-gate",
+  "title": "New Feature",
+  "description": "Description here"
+}
+```
+
+**Response:**
+Returns the created idea object.
+
+### 11. Update Idea
+`PUT /api/ideas/:id`
+
+Updates an existing idea's title or description.
+
+**Request Body:**
+```json
+{
+  "title": "Updated Title",
+  "description": "Updated Description"
+}
+```
+
+**Response:**
+Returns the updated idea object.
+
+### 12. Delete Idea
+`DELETE /api/ideas/:id`
+
+Permanently deletes an idea file from the source directory.
+
+**Response:**
+Returns 200 OK on success.
+
+
