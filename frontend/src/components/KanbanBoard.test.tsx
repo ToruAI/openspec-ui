@@ -11,8 +11,11 @@ describe('KanbanBoard', () => {
       sourceId: 'test-source',
       status: 'todo',
       taskStats: { done: 0, total: 5 },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      hasProposal: true,
+      hasSpecs: true,
+      hasTasks: true,
+      hasDesign: false,
+      readyForReview: false,
     },
   ];
 
@@ -22,6 +25,7 @@ describe('KanbanBoard', () => {
       title: 'Test Idea',
       description: 'Test description',
       sourceId: 'test-source',
+      projectId: 'test-project',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     },
@@ -32,6 +36,7 @@ describe('KanbanBoard', () => {
       id: 'test-source',
       name: 'Test Source',
       path: '/test/path',
+      valid: true,
     },
   ];
 
