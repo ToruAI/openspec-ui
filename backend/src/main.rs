@@ -13,8 +13,8 @@ use clap::Parser as ClapParser;
 use config::SourceConfig;
 use config_manager::{AppState, ConfigManager, ConfigResponse};
 use futures::stream::{self, Stream};
-use notify::RecursiveMode;
-use notify_debouncer_mini::{new_debouncer, DebouncedEvent};
+use notify::{Config, EventKind, RecursiveMode, Watcher};
+use notify_debouncer_full::{new_debouncer, DebouncedEvent, FileIdMap};
 use parser::{Change, ChangeDetail, Idea, Spec, SpecDetail};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,7 @@ use tokio::sync::broadcast;
 use tower_http::{
     cors::{Any, CorsLayer},
     services::ServeDir,
+    services::ServeFile,
 };
 use tower_http::cors::AllowOrigin;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -437,6 +438,7 @@ async fn sse_handler(
 
     Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()
+        // Reduce keep-alive interval to 15s to keep connections fresh
             .interval(Duration::from_secs(15))
             .text("keep-alive-text"),
     )
@@ -524,7 +526,8 @@ async fn main() {
     // Setup file watcher with dynamic update support
     let state_for_watcher = state.clone();
     tokio::spawn(async move {
-        let mut current_watcher: Option<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>> = None;
+        // Use full debouncer to get event kinds
+        let mut current_watcher: Option<notify_debouncer_full::Debouncer<notify::RecommendedWatcher, FileIdMap>> = None;
         let mut config_rx = config_update_tx_for_watcher.subscribe();
 
         // Initial setup
@@ -542,15 +545,38 @@ async fn main() {
 
                 // Create new watcher
                 let update_tx_watcher = state_for_watcher.update_tx.clone();
+                
+                // Using notify-debouncer-full to filter Access events
                 match new_debouncer(
                     Duration::from_millis(500),
-                    move |result: Result<Vec<DebouncedEvent>, notify::Error>| {
+                    None, // No cache timeout
+                    move |result: Result<Vec<DebouncedEvent>, Vec<notify::Error>>| {
                         match result {
-                            Ok(_) => {
-                                let _ = update_tx_watcher.send(());
+                            Ok(events) => {
+                                let mut changed = false;
+                                for debounced_event in events {
+                                    // Filter out Access events which are causing infinite loops
+                                    match debounced_event.event.kind {
+                                        EventKind::Access(_) => {
+                                            // Ignore access events
+                                            continue;
+                                        }
+                                        _ => {
+                                            tracing::info!("File changed: {:?} {:?}", debounced_event.event.paths, debounced_event.event.kind);
+                                            changed = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                
+                                if changed {
+                                    let _ = update_tx_watcher.send(());
+                                }
                             }
-                            Err(e) => {
-                                tracing::warn!("File watcher error: {}", e);
+                            Err(errors) => {
+                                for e in errors {
+                                    tracing::warn!("File watcher error: {}", e);
+                                }
                             }
                         }
                     },
@@ -581,7 +607,9 @@ async fn main() {
         }
     });
 
+    // ... rest of main ...
     // Determine port
+    // ...
     let config_response = config_manager.get_config_response().unwrap_or(ConfigResponse {
         sources: vec![],
         port: 3000,
@@ -591,7 +619,9 @@ async fn main() {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(config_response.port);
-
+        
+    // ... (rest is same)
+    
     // Configure CORS from environment variable
     let cors = if let Ok(origins_str) = env::var("CORS_ALLOWED_ORIGINS") {
         // Parse comma-separated origins

@@ -1,0 +1,13 @@
+{
+  "sources": [
+    {
+      "name": "openspec-ui",
+      "path": "./openspec"
+    },
+    {
+      "name": "example",
+      "path": "./example-openspec"
+    }
+  ],
+  "port": 3000
+}
