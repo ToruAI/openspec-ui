@@ -1,12 +1,12 @@
 {
   "sources": [
     {
-      "name": "openspec-ui",
-      "path": "./openspec"
+      "name": "steering-center",
+      "path": "/root/GitRepos/steering-center/openspec"
     },
     {
-      "name": "toru-steering-center",
-      "path": "/Users/tako/GitRepos/toru-steering-center/openspec"
+      "name": "openspec-ui",
+      "path": "/root/GitRepos/openspec-ui/openspec"
     }
   ],
   "port": 3000
