@@ -66,8 +66,8 @@ describe('KanbanBoard', () => {
         selectedSourceId={null}
       />
     );
-    // Should render skeleton loaders
-    const skeletons = document.querySelectorAll('.animate-pulse');
+    // Should render skeleton loaders (uses animate-shimmer class)
+    const skeletons = document.querySelectorAll('.before\\:animate-shimmer');
     expect(skeletons.length).toBeGreaterThan(0);
   });
 

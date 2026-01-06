@@ -13,7 +13,7 @@ use clap::Parser as ClapParser;
 use config::SourceConfig;
 use config_manager::{AppState, ConfigManager, ConfigResponse};
 use futures::stream::{self, Stream};
-use notify::{Config, EventKind, RecursiveMode, Watcher};
+use notify::{EventKind, RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer, DebouncedEvent, FileIdMap};
 use parser::{Change, ChangeDetail, Idea, Spec, SpecDetail};
 use rust_embed::RustEmbed;
@@ -30,7 +30,6 @@ use tokio::sync::broadcast;
 use tower_http::{
     cors::{Any, CorsLayer},
     services::ServeDir,
-    services::ServeFile,
 };
 use tower_http::cors::AllowOrigin;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
