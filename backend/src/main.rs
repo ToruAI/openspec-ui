@@ -366,16 +366,16 @@ async fn update_sources(
 ) -> Result<Json<ConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
     let config_manager = state.config_manager().await;
 
-    // Validate sources
-    if let Err(err) = config_manager.validate_sources(&req.sources) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: err }),
-        ));
+    // Validate sources - invalid ones are filtered out with warnings
+    let (valid_sources, warnings) = config_manager.validate_sources(&req.sources);
+
+    // Log warnings for filtered sources
+    for warning in &warnings {
+        tracing::warn!("{}", warning);
     }
 
-    // Save to disk
-    if let Err(e) = config_manager.save_sources(&req.sources) {
+    // Save only valid sources to disk
+    if let Err(e) = config_manager.save_sources(&valid_sources) {
         tracing::error!("Failed to save config: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,

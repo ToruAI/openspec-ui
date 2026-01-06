@@ -79,9 +79,14 @@ impl ConfigManager {
         })
     }
 
-    pub fn validate_sources(&self, sources: &[SourceConfig]) -> Result<(), String> {
+    /// Validates sources and returns (valid_sources, warnings).
+    /// Invalid sources are filtered out with warnings instead of failing the entire request.
+    pub fn validate_sources(&self, sources: &[SourceConfig]) -> (Vec<SourceConfig>, Vec<String>) {
         let default_path = PathBuf::from(".");
         let base_path = self.config_path.parent().unwrap_or(&default_path);
+
+        let mut valid = Vec::new();
+        let mut warnings = Vec::new();
 
         for source in sources {
             let path = if source.path.starts_with("./") || source.path.starts_with("../") {
@@ -91,13 +96,17 @@ impl ConfigManager {
             };
 
             if !path.exists() {
-                return Err(format!("Path does not exist: {}", source.path));
+                warnings.push(format!("Skipping '{}': path does not exist: {}", source.name, source.path));
+                continue;
             }
             if !path.is_dir() {
-                return Err(format!("Path is not a directory: {}", source.path));
+                warnings.push(format!("Skipping '{}': path is not a directory: {}", source.name, source.path));
+                continue;
             }
+            valid.push(source.clone());
         }
-        Ok(())
+
+        (valid, warnings)
     }
 
     pub fn save_sources(&self, sources: &[SourceConfig]) -> Result<(), anyhow::Error> {

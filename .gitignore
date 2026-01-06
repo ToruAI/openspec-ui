@@ -55,6 +55,9 @@ logs/
 *.temp
 .cache/
 
+# Local config (machine-specific paths)
+openspec-ui.json
+
 # Coverage
 coverage/
 *.lcov

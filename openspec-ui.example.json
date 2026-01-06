@@ -1,0 +1,9 @@
+{
+  "sources": [
+    {
+      "name": "my-project",
+      "path": "./openspec"
+    }
+  ],
+  "port": 3000
+}
