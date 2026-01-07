@@ -84,15 +84,15 @@ jobs:
           cd frontend
           npm test -- --run
 
-      - name: Run backend tests
-        run: |
-          cd backend
-          cargo test --verbose
-
       - name: Build frontend
         run: |
           cd frontend
           npm run build
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          cargo test --verbose
 
       - name: Build backend
         run: |
