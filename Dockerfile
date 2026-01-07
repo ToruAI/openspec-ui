@@ -17,7 +17,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Rust builder - Build backend
-FROM rust:1.75-slim AS backend-builder
+FROM rust:1.82-slim AS backend-builder
 
 WORKDIR /app
 
@@ -42,6 +42,9 @@ RUN cargo build --release && \
 # Copy actual backend source
 COPY backend/src ./src
 
+# Copy frontend assets for embedding
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+
 # Build backend
 RUN touch src/main.rs && \
     cargo build --release
@@ -62,6 +65,9 @@ RUN useradd -m -u 1000 openspec
 # Copy backend binary from builder
 COPY --from=backend-builder /app/backend/target/release/openspec-ui /app/openspec-ui
 
+# Copy config file
+COPY openspec-ui.json /app/openspec-ui.json
+
 # Copy frontend assets from builder
 COPY --from=frontend-builder /app/frontend/dist /app/dist
 
@@ -70,6 +76,9 @@ RUN chown -R openspec:openspec /app
 
 # Switch to non-root user
 USER openspec
+
+# Set environment variables
+ENV PORT=3000
 
 # Expose port
 EXPOSE 3000
