@@ -2,6 +2,8 @@
 
 A read-only dashboard for monitoring OpenSpec changes and specifications across multiple repositories.
 
+![OpenSpec UI Screenshot](./image.png)
+
 ## Features
 
 - **Kanban Board**: Visualize changes in columns (Draft → Todo → In Progress → Done)
