@@ -177,13 +177,13 @@ export function useIdeas() {
   return { ideas, loading, error, refetch };
 }
 
-export async function createIdea(title: string, description: string, projectId?: string | null): Promise<Idea> {
+export async function createIdea(title: string, description: string, sourceId?: string | null): Promise<Idea> {
   return fetchJson<Idea>(`${API_BASE}/ideas`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ title, description, projectId }),
+    body: JSON.stringify({ title, description, sourceId }),
   });
 }
 

@@ -495,7 +495,7 @@ updatedAt: {}
     std::fs::write(&idea_path, content)?;
 
     Ok(Idea {
-        id: id.to_string(),
+        id: format!("{}/{}", source_id, id),
         source_id: source_id.to_string(),
         project_id: project_id.map(|s| s.to_string()),
         title: title.to_string(),
@@ -561,7 +561,7 @@ updatedAt: {}
     std::fs::write(&idea_path, content)?;
 
     Ok(Idea {
-        id: id.to_string(),
+        id: format!("{}/{}", source_id, id),
         source_id: source_id.to_string(),
         project_id: frontmatter.project_id,
         title: title.to_string(),

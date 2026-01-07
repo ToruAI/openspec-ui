@@ -34,7 +34,7 @@ export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, idea,
   const [internalOpen, setInternalOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [sourceId, setSourceId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const { sources } = useSources();
 
@@ -46,11 +46,11 @@ export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, idea,
     if (idea) {
       setTitle(idea.title);
       setDescription(idea.description);
-      setProjectId(idea.projectId);
+      setSourceId(idea.sourceId);
     } else {
       setTitle('');
       setDescription('');
-      setProjectId(null);
+      setSourceId(null);
     }
   }, [idea]);
 
@@ -63,11 +63,11 @@ export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, idea,
       if (isEditing && idea) {
         await updateIdea(idea.id, title, description);
       } else {
-        await createIdea(title, description, projectId);
+        await createIdea(title, description, sourceId);
       }
       setTitle('');
       setDescription('');
-      setProjectId(null);
+      setSourceId(null);
       setOpen(false);
       onSuccess?.();
     } catch (error) {
@@ -99,16 +99,16 @@ export function IdeaCapture({ open: controlledOpen, onOpenChange, trigger, idea,
           <div className="space-y-4 py-4">
             {!isEditing && (
               <div className="space-y-2">
-                <Label htmlFor="project">Project (Optional)</Label>
+                <Label htmlFor="source">Source (Optional)</Label>
                 <Select
-                  value={projectId || ''}
-                  onValueChange={(value) => setProjectId(value === 'none' ? null : value)}
+                  value={sourceId || ''}
+                  onValueChange={(value) => setSourceId(value === 'none' ? null : value)}
                 >
-                  <SelectTrigger id="project">
-                    <SelectValue placeholder="Select a project or leave unassigned" />
+                  <SelectTrigger id="source">
+                    <SelectValue placeholder="Select a source or leave unassigned" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No Project (General Ideas)</SelectItem>
+                    <SelectItem value="none">No Source (Default)</SelectItem>
                     {sources.map((source) => (
                       <SelectItem key={source.id} value={source.id}>
                         {source.name}

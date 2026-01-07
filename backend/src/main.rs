@@ -95,7 +95,7 @@ struct CreateIdeaRequest {
     title: String,
     description: String,
     #[serde(default)]
-    project_id: Option<String>,
+    source_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -225,14 +225,14 @@ async fn create_idea(
 ) -> Result<Json<Idea>, (StatusCode, Json<ErrorResponse>)> {
     // Find target source
     let sources = state.get_sources().await;
-    let source = if let Some(project_id) = &req.project_id {
+    let source = if let Some(source_id) = &req.source_id {
         sources
             .iter()
-            .find(|s| s.id == *project_id && s.valid)
+            .find(|s| s.id == *source_id && s.valid)
             .ok_or_else(|| (
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: format!("Project source '{}' not found", project_id),
+                    error: format!("Source '{}' not found", source_id),
                 }),
             ))?
     } else {
@@ -255,7 +255,7 @@ async fn create_idea(
         &id,
         &req.title,
         &req.description,
-        req.project_id.as_deref()
+        None
     )
         .map_err(|e| (
             StatusCode::INTERNAL_SERVER_ERROR,

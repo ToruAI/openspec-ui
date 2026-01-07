@@ -1,147 +1,139 @@
 # OpenSpec UI
 
-A read-only dashboard for monitoring OpenSpec changes and specifications across multiple repositories.
+A dashboard for tracking [OpenSpec](https://github.com/Fission-AI/OpenSpec) changes across multiple repositories. Built for agentic development workflows.
 
-![OpenSpec UI Screenshot](./image.png)
+<p align="center">
+  <img src="./desktop.png" alt="OpenSpec UI Desktop" width="600"/>
+  <img src="./mobile.png" alt="OpenSpec UI Mobile" width="150"/>
+</p>
+<p align="center"><em>Desktop and mobile views — mobile-first design should work on any device</em></p>
 
-## Features
+## Why
 
-- **Kanban Board**: Visualize changes in columns (Draft → Todo → In Progress → Done)
-- **Specs Browser**: Browse all specifications across repositories
-- **Detail View**: View full proposal, specs, tasks, and design documents
-- **Real-time Updates**: Automatically refreshes when files change
-- **Multi-repo Support**: Monitor multiple OpenSpec repositories simultaneously
-- **Light/Dark Theme**: Toggle between themes
+AI coding assistants are powerful, but when you're working across multiple projects, it's hard to keep track of what's happening where. Which features are in progress? What did the agent finish yesterday? What ideas are waiting to be developed?
 
-## Tech Stack
+OpenSpec UI solves this by giving you a single dashboard to monitor all your AI-assisted projects — capture ideas on the go, watch progress in real-time, and stay in sync with your agents.
 
-- **Frontend**: Vite + React + TypeScript + Tailwind CSS
-- **Backend**: Rust (Axum)
-- **Real-time**: Server-Sent Events (SSE)
-- **File Watching**: notify + notify-debouncer-mini
+## What is OpenSpec?
 
-## Development
+[OpenSpec](https://github.com/Fission-AI/OpenSpec) is a spec-driven development (SDD) framework for AI coding assistants. Instead of jumping straight into code, you first define **what** should be built through structured proposals and specifications. Your AI agent then implements the spec, task by task.
 
-### Prerequisites
-
-- Rust (latest stable)
-- Node.js 18+ and npm/bun
-
-### Setup
-
-1. **Backend**:
-```bash
-cd backend
-cargo build
+```
+openspec/
+├── specs/          # What IS built (source of truth)
+├── changes/        # What SHOULD change (proposals + tasks)
+└── ideas/          # Quick thoughts to develop later
 ```
 
-2. **Frontend**:
-```bash
-cd frontend
-npm install
-npm run build
+OpenSpec UI reads this structure and displays it as a kanban board.
+
+## What It Does
+
+OpenSpec UI gives you a bird's-eye view of all your AI-assisted projects:
+
+- **Capture ideas** — Quick-capture thoughts that AI agents can later expand into proposals
+- **Track progress** — Watch changes move from Ideas → Todo → In Progress → Done
+- **Multi-repo visibility** — Monitor multiple OpenSpec repositories from one dashboard
+- **Real-time updates** — Auto-refreshes as your agents work through tasks
+
+## The Workflow
+
+```
+💡 Idea  →  📋 Proposal  →  ⚡ Implementation  →  ✅ Done
+   ↑            ↑                  ↑
+  You      AI Agent           AI Agent
 ```
 
-### Running
+1. **Capture an idea** in the UI
+2. **Work with your AI agent** to expand it into a full OpenSpec proposal
+3. **Watch progress** as the agent implements tasks
+4. **Archive** completed changes
 
-1. **Create config file** (`openspec-ui.json`):
+OpenSpec UI is the mission control — the actual spec-driven development happens through [OpenSpec](https://github.com/Fission-AI/OpenSpec) and your AI coding assistant (Cursor, Claude Code, etc.).
+
+## Installation
+
+### Option 1: Download Binary (Recommended)
+
+Download the latest release from [GitHub Releases](https://github.com/ToruAI/openspec-ui/releases):
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `openspec-ui-v0.1.0-darwin-aarch64.zip` |
+| Linux (x86_64) | `openspec-ui-v0.1.0-linux-x86_64.zip` |
+| Windows (x86_64) | `openspec-ui-v0.1.0-windows-x86_64.zip` |
+
+```bash
+# Extract and run (Linux/macOS)
+unzip openspec-ui-*.zip
+./openspec-ui --config openspec-ui.json
+```
+
+### Option 2: Docker
+
+```bash
+docker build -t openspec-ui .
+
+docker run -p 3000:3000 \
+  -v /path/to/your/repos:/repos \
+  -v /path/to/openspec-ui.json:/app/openspec-ui.json \
+  openspec-ui
+```
+
+### Option 3: Build from Source
+
+**Prerequisites:** Rust (stable), Node.js 18+
+
+```bash
+# Quick build & run (creates default config if missing)
+./build_n_run.sh
+
+# Or step by step:
+cd frontend && npm ci && npm run build && cd ..
+cd backend && cargo build --release && cd ..
+./backend/target/release/openspec-ui --config openspec-ui.json
+```
+
+## Configuration
+
+Create `openspec-ui.json`:
+
 ```json
 {
   "sources": [
-    {
-      "name": "my-repo",
-      "path": "./path/to/openspec"
-    }
+    { "name": "my-project", "path": "/path/to/my-project/openspec" },
+    { "name": "another-repo", "path": "/path/to/another-repo/openspec" }
   ],
   "port": 3000
 }
 ```
 
-2. **Start backend**:
-```bash
-cd backend
-cargo run -- --config ../openspec-ui.json
-```
+| Field | Description |
+|-------|-------------|
+| `sources` | Array of OpenSpec directories to monitor |
+| `sources[].name` | Display name for the project |
+| `sources[].path` | Path to the `openspec/` directory |
+| `port` | Server port (default: 3000) |
 
-3. **Start frontend** (in another terminal):
-```bash
-cd frontend
-npm run dev
-```
+## Features
 
-The frontend dev server will proxy API requests to the backend.
+- **Kanban Board** — Ideas, Todo, In Progress, Done, Archived columns
+- **Specs Browser** — Browse specifications across all repositories
+- **Detail View** — View proposals, specs, tasks, and design documents
+- **Real-time Updates** — Auto-refreshes when files change (SSE)
+- **Mobile-first** — Works great on phone and tablet
+- **Light/Dark Theme** — Toggle between themes
 
-### Production Build
+## Tech Stack
 
-1. Build frontend:
-```bash
-cd frontend
-npm run build
-```
+- **Frontend**: React + TypeScript + Tailwind CSS + shadcn/ui
+- **Backend**: Rust (Axum)
+- **Real-time**: Server-Sent Events (SSE)
 
-2. Run backend (it will serve the frontend from `frontend/dist`):
-```bash
-cd backend
-cargo run --release -- --config openspec-ui.json
-```
+## Related
 
-Or set `FRONTEND_DIR` environment variable to point to a different frontend build directory.
-
-## Configuration
-
-The config file (`openspec-ui.json`) supports:
-
-- `sources`: Array of OpenSpec repositories to monitor
-  - `name`: Unique identifier for the source
-  - `path`: Path to the OpenSpec directory (relative or absolute)
-- `port`: Server port (default: 3000)
-
-Paths can be:
-- Absolute: `/Users/tako/repos/my-repo/openspec`
-- Relative to config file: `./openspec` or `../other-repo/openspec`
-
-## API Endpoints
-
-- `GET /api/health` - Health check
-- `GET /api/sources` - List configured sources
-- `GET /api/changes` - List all changes with status
-- `GET /api/changes/:id` - Get change detail (id format: `sourceId/changeName`)
-- `GET /api/specs` - List all specs
-- `GET /api/specs/:id` - Get spec content (id format: `sourceId/specPath`)
-- `SSE /api/events` - Real-time file change notifications
-
-## Change Status Logic
-
-| Status | Condition |
-|--------|-----------|
-| Draft | Has `proposal.md` but NO `tasks.md` |
-| Todo | Has `tasks.md`, ALL tasks are `[ ]` |
-| In Progress | Has `tasks.md`, SOME `[x]` but not all |
-| Done | Located in `archive/` folder OR all tasks completed |
-
-## Project Structure
-
-```
-openspec-ui/
-├── backend/           # Rust backend
-│   ├── src/
-│   │   ├── main.rs    # Server & API handlers
-│   │   ├── config.rs  # Config loading
-│   │   └── parser.rs  # OpenSpec parsing
-│   └── Cargo.toml
-├── frontend/          # React frontend
-│   ├── src/
-│   │   ├── components/
-│   │   ├── hooks/
-│   │   └── types/
-│   └── package.json
-├── openspec/          # This project's specs
-└── example-openspec/  # Test data
-```
+- [OpenSpec](https://github.com/Fission-AI/OpenSpec) — The spec-driven development framework this UI is built for
 
 ## License
 
 MIT
-
-
-

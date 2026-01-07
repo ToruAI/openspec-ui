@@ -1,7 +1,8 @@
 # project-metadata Specification
 
 ## Purpose
-TBD - created by archiving change prepare-public-release. Update Purpose after archive.
+Defines project identity, versioning, and metadata requirements for OpenSpec UI.
+
 ## Requirements
 ### Requirement: Project Identity
 The project manifest files MUST contain correct open-source metadata.
