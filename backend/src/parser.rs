@@ -694,11 +694,15 @@ fn invalid_input(message: &str) -> std::io::Error {
 }
 
 /// The source's `ideas/` folder, which must stay inside the source.
+/// `NotFound` when there is none yet (and `create` is false).
 fn ideas_root(source_path: &Path, create: bool) -> std::io::Result<Root> {
-    let source = Root::new(source_path)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Source folder not found"))?;
+    let not_found = || std::io::Error::new(std::io::ErrorKind::NotFound, "Idea not found");
+    let source = Root::new(source_path).ok_or_else(not_found)?;
     let dir = source.path().join("ideas");
-    if create && dir.symlink_metadata().is_err() {
+    if dir.symlink_metadata().is_err() {
+        if !create {
+            return Err(not_found());
+        }
         std::fs::create_dir(&dir)?;
     }
     source
@@ -799,8 +803,8 @@ pub fn delete_idea(source_path: &Path, id: &str) -> std::io::Result<()> {
     }
     let ideas = match ideas_root(source_path, false) {
         Ok(ideas) => ideas,
-        Err(e) if e.kind() == std::io::ErrorKind::InvalidInput => return Err(e),
-        Err(_) => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
     };
     let path = idea_path(&ideas, id)?;
     match std::fs::remove_file(path) {
@@ -1290,6 +1294,17 @@ Description"#;
         let written = std::fs::read_to_string(src.join("ideas/idea-7.md")).unwrap();
         assert!(written.contains("id: idea-7\n"), "{written}");
         assert_eq!(scan_ideas(&src, "repo")[0].title, "New");
+    }
+
+    #[test]
+    fn a_source_without_ideas_folder_answers_like_a_missing_idea() {
+        let t = TempOpenSpec::new("idea-none");
+        let src = t.openspec();
+        assert!(scan_ideas(&src, "repo").is_empty());
+        delete_idea(&src, "idea-1").unwrap();
+        let update = update_idea(&src, "repo", "idea-1", "t", "d");
+        assert_eq!(update.unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert!(save_idea(&src, "repo", "idea-1", "t", "d", None).is_ok(), "creates ideas/");
     }
 
     #[test]

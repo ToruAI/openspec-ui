@@ -132,9 +132,10 @@ pub async fn probe_info(addr: SocketAddr) -> Option<Info> {
 
 pub enum Bound {
     Listening { listener: TcpListener, skipped: Vec<u16> },
-    /// An openspec-ui for the same scope already runs here. Its `url` and
-    /// `port` are ours (the address we probed), never what it claimed, and
-    /// `lan_url` is cleared for the caller to compute.
+    /// An openspec-ui for the same scope already runs here. Its `url`,
+    /// `port` and `changelog` are ours (the address we probed), never what it
+    /// claimed, and `lan_url` is cleared for the caller to compute. `pid` and
+    /// `sources` are as reported, for display only.
     Reused(Info),
 }
 
@@ -192,6 +193,7 @@ pub async fn bind(
                             url: local_url(ip, p),
                             port: p,
                             lan_url: None,
+                            changelog: CHANGELOG_URL.to_string(),
                             ..info
                         }));
                     }
@@ -478,6 +480,7 @@ mod tests {
         let liar = Info {
             url: "http://evil.example/phish & calc.exe".into(),
             lan_url: Some("http://evil.example/".into()),
+            changelog: "http://evil.example/changelog".into(),
             ..info_for(&s, 0)
         };
         let port = fake_openspec_ui(liar).await;
@@ -486,6 +489,7 @@ mod tests {
                 assert_eq!(info.url, format!("http://127.0.0.1:{port}"));
                 assert_eq!(info.port, port);
                 assert_eq!(info.lan_url, None);
+                assert_eq!(info.changelog, CHANGELOG_URL);
             }
             Bound::Listening { .. } => panic!("should reuse"),
         }
