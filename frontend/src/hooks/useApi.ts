@@ -253,6 +253,10 @@ export interface ServerInfo {
   configPath: string | null;
   roots: string[];
   changelog: string;
+  /** Address the server is bound to, e.g. 127.0.0.1 or 0.0.0.0 */
+  host?: string;
+  /** Address a phone on the same network can open; set only with --host 0.0.0.0 */
+  lanUrl?: string | null;
 }
 
 export function useServerInfo() {

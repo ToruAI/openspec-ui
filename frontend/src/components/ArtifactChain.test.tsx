@@ -24,7 +24,8 @@ describe('ArtifactChain', () => {
       />
     );
     const labels = [...container.querySelectorAll('[data-status]')].map((el) => el.textContent);
-    expect(labels).toEqual(['Research', 'Proposalnext', 'Implementation plan']);
+    // Status is spelled out for screen readers, not only shown by colour and icon.
+    expect(labels).toEqual(['Research, written', 'Proposalnext', 'Implementation plan, waiting for proposal']);
     expect(screen.getByTitle('Waiting for proposal')).toBeInTheDocument();
   });
 
@@ -43,7 +44,7 @@ describe('ArtifactChain', () => {
       <ArtifactChain artifacts={[artifact('proposal', 'done'), artifact('specs', 'skipped'), artifact('tasks', 'ready')]} />
     );
     const specs = container.querySelector('[data-status="skipped"]');
-    expect(specs).toHaveTextContent('Specsskipped');
+    expect(specs).toHaveTextContent('Specs, skipped');
     expect(specs).toHaveAttribute('title', expect.stringContaining('skip_specs'));
   });
 
@@ -75,10 +76,35 @@ describe('ChangeCard', () => {
     warnings: [],
   };
 
-  it('renders a custom schema chain and task progress', () => {
+  it('shows task progress and leaves out a chain that is fully written', () => {
     render(<ChangeCard change={change} onClick={vi.fn()} />);
+    expect(screen.getByText('2/3 tasks')).toBeInTheDocument();
+    expect(screen.queryByText('Research')).not.toBeInTheDocument();
+  });
+
+  it('keeps the chain on a card whose planning is not finished', () => {
+    render(
+      <ChangeCard
+        change={{ ...change, isPlanningComplete: false, artifacts: [artifact('research', 'ready'), artifact('tasks', 'done')] }}
+        onClick={vi.fn()}
+      />
+    );
     expect(screen.getByText('Research')).toBeInTheDocument();
-    expect(screen.getByText('2 of 3 tasks')).toBeInTheDocument();
     expect(screen.queryByText('Design')).not.toBeInTheDocument();
+  });
+
+  it('leads with the summary and opens from a real button', async () => {
+    const onClick = vi.fn();
+    render(<ChangeCard change={{ ...change, summary: 'Let people sign in.' }} onClick={onClick} repo={{ name: 'web', color: 'bg-teal-500' }} />);
+    expect(screen.getByText('Let people sign in.')).toBeInTheDocument();
+    expect(screen.getByText('web')).toBeInTheDocument();
+    screen.getByRole('button', { name: 'add-login' }).click();
+    expect(onClick).toHaveBeenCalled();
+  });
+
+  it('drops the date prefix from an archived change and shows it as the archive date', () => {
+    render(<ChangeCard change={{ ...change, name: '2026-08-12-add-login', status: 'archived' }} onClick={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'add-login' })).toBeInTheDocument();
+    expect(screen.getByText('Archived 2026-08-12')).toBeInTheDocument();
   });
 });

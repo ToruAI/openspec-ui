@@ -1,78 +1,110 @@
+import { AlertTriangle } from 'lucide-react';
 import type { Change } from '../types';
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import { changeArtifacts } from "@/lib/artifacts";
+import { cn } from '@/lib/utils';
+import { changeArtifacts, waitingSummary } from '@/lib/artifacts';
+import { splitArchivedName, stageOf } from '@/lib/board';
 import { ArtifactChain } from './ArtifactChain';
 
 interface ChangeCardProps {
   change: Change;
   onClick: () => void;
+  /** Repo label, shown when the board mixes repos */
+  repo?: { name: string; color: string } | null;
 }
 
-export function ChangeCard({ change, onClick }: ChangeCardProps) {
-  const taskStats = change.taskStats;
-  const progress = taskStats && taskStats.total > 0 ? (taskStats.done / taskStats.total) * 100 : 0;
-  const isComplete = progress === 100;
+function TaskBar({ done, total }: { done: number; total: number }) {
+  const complete = done === total;
+  const percent = Math.round((done / total) * 100);
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+      <div
+        className="h-1 flex-1 rounded-full bg-muted overflow-hidden"
+        role="progressbar"
+        aria-label="Tasks checked"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={done}
+      >
+        <div
+          className={cn('h-full rounded-full', complete ? 'bg-emerald-500' : 'bg-amber-500')}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <span className={cn(complete && 'text-emerald-700 dark:text-emerald-400 font-medium')}>
+        {done}/{total} tasks
+      </span>
+    </div>
+  );
+}
+
+export function ChangeCard({ change, onClick, repo }: ChangeCardProps) {
+  const stage = stageOf(change);
+  const artifacts = changeArtifacts(change);
+  const stats = change.taskStats;
+  const hasTasks = !!stats && stats.total > 0;
+  // The chain is the point of a change still being planned; once planning is
+  // done it is noise, unless something in it is still missing or broken.
+  const showChain = !!change.error || stage === 'planning' || (!change.isPlanningComplete && stage !== 'archived');
+  const warnings = change.warnings ?? [];
+  const summary = change.summary || change.title;
+  const archived = stage === 'archived' ? splitArchivedName(change.name) : null;
+  // Screen readers get this per artifact from the chain itself.
+  const waiting = waitingSummary(artifacts);
 
   return (
-    <Card
+    <article
       className={cn(
-        "cursor-pointer card-hover border-border/50 bg-card/80 backdrop-blur-sm",
-        "hover:border-primary/30 transition-all duration-200",
-        isComplete && "border-[var(--accent-emerald)]/30 bg-[var(--accent-emerald)]/5"
+        'group relative rounded-lg border border-border/70 bg-card px-3 py-2.5 text-left shadow-[0_1px_0_0_oklch(0_0_0/0.02)]',
+        'transition-[border-color,box-shadow] duration-150 hover:border-foreground/20 hover:shadow-sm',
+        'has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-ring has-[button:focus-visible]:ring-offset-1 has-[button:focus-visible]:ring-offset-background',
+        stage === 'archived' && 'bg-card/60'
       )}
-      onClick={onClick}
+      data-stage={stage}
     >
-      <CardContent className="p-4">
-        {/* Header: Title + Source */}
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <h3 className="font-semibold text-sm flex-1 line-clamp-2 leading-snug">
-            {change.name}
-          </h3>
-          <Badge 
-            variant="secondary" 
-            className="text-[10px] font-medium px-2 py-0.5 shrink-0 bg-muted/80"
-          >
-            {change.sourceId}
-          </Badge>
+      {repo && (
+        <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', repo.color)} aria-hidden />
+          <span className="truncate">{repo.name}</span>
         </div>
-
-        {/* Progress bar */}
-        {taskStats && taskStats.total > 0 && (
-          <div className="space-y-2 mb-3">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-muted-foreground font-medium">
-                {taskStats.done} of {taskStats.total} tasks
-              </span>
-              <span className={cn(
-                "font-semibold tabular-nums",
-                isComplete ? "text-[var(--accent-emerald)]" : "text-foreground"
-              )}>
-                {Math.round(progress)}%
-              </span>
-            </div>
-            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-500 ease-out",
-                  isComplete 
-                    ? "bg-[var(--accent-emerald)]" 
-                    : "progress-gradient"
-                )}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
+      )}
+      <h3 className="text-[13px] font-semibold leading-snug text-foreground break-words">
+        <button
+          type="button"
+          onClick={onClick}
+          className="text-left outline-none after:absolute after:inset-0 after:rounded-lg after:content-['']"
+        >
+          {archived ? archived.name : change.name}
+        </button>
+        {warnings.length > 0 && !change.error && (
+          <span
+            className="relative z-[1] ml-1 inline-flex align-[-2px] text-amber-600 dark:text-amber-400"
+            title={warnings.join('\n')}
+          >
+            <AlertTriangle className="h-3 w-3" aria-hidden />
+            <span className="sr-only">OpenSpec warnings: {warnings.join(' ')}</span>
+          </span>
         )}
+      </h3>
+      {summary && (
+        <p className="mt-0.5 text-xs leading-snug text-muted-foreground line-clamp-2" title={summary}>
+          {summary}
+        </p>
+      )}
 
-        {/* Artifact chain from the change's workflow schema */}
-        <ArtifactChain
-          artifacts={changeArtifacts(change)}
-          error={change.error}
-          warnings={change.warnings}
-        />
-      </CardContent>
-    </Card>
+      {(showChain || hasTasks) && (
+        <div className="mt-2 space-y-2">
+          {showChain && <ArtifactChain artifacts={artifacts} error={change.error} />}
+          {showChain && !change.error && waiting && (
+            <p className="text-[11px] leading-snug text-muted-foreground line-clamp-2" aria-hidden>
+              {waiting}
+            </p>
+          )}
+          {hasTasks && stage !== 'archived' && <TaskBar done={stats.done} total={stats.total} />}
+        </div>
+      )}
+      {archived?.date && (
+        <p className="mt-1.5 text-[11px] text-muted-foreground tabular-nums">Archived {archived.date}</p>
+      )}
+    </article>
   );
 }

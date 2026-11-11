@@ -4,6 +4,7 @@
 //! Change state follows OpenSpec 1.17 semantics (see `workflow`), checked
 //! against the real CLI by the conformance test (`conformance`).
 
+mod summary;
 mod tasks;
 mod workflow;
 #[cfg(test)]
@@ -68,6 +69,12 @@ pub struct Change {
     pub name: String,
     pub source_id: String,
     pub status: ChangeStatus,
+    /// The proposal's own title, when it has one beyond the template's
+    /// `# Proposal` (legacy `# Change: Add X`). Display only.
+    pub title: Option<String>,
+    /// One line on what the change is for: `goal` from `.openspec.yaml`, else
+    /// the first paragraph of the proposal's `## Why`. Display only.
+    pub summary: Option<String>,
     pub has_proposal: bool,
     pub has_specs: bool,
     pub has_tasks: bool,
@@ -311,11 +318,14 @@ fn scan_change(
         )
     };
 
+    let summary::ChangeSummary { title, summary } = summary::summarize(change_path);
     let change = Change {
         id: format!("{}/{}", source_id, name),
         name,
         source_id: source_id.to_string(),
         status: compute_status(analysis.task_stats.as_ref(), is_archived),
+        title,
+        summary,
         has_proposal: change_path.join("proposal.md").is_file(),
         has_specs: !workflow::resolve_outputs(change_path, "specs/**/*.md").is_empty(),
         has_tasks: !analysis.task_files.is_empty(),
@@ -810,6 +820,29 @@ mod tests {
 
     fn statuses(change: &Change) -> Vec<(String, ArtifactStatus)> {
         change.artifacts.iter().map(|a| (a.id.clone(), a.status)).collect()
+    }
+
+    #[test]
+    fn list_carries_a_summary_without_changing_state() {
+        let repo = TempOpenSpec::new("summary");
+        repo.write("changes/add-x/.openspec.yaml", "schema: spec-driven\ngoal: Ship X\n");
+        repo.write("changes/add-y/proposal.md", "# Change: Add Y\n\n## Why\n\nY is missing.\n");
+        repo.write("changes/broken/.openspec.yaml", "schema: [nope\n");
+
+        let x = repo.change("add-x");
+        assert_eq!((x.title, x.summary.as_deref()), (None, Some("Ship X")));
+        assert_eq!(x.status, ChangeStatus::Draft);
+
+        let y = repo.change("add-y");
+        assert_eq!((y.title.as_deref(), y.summary.as_deref()), (Some("Add Y"), Some("Y is missing.")));
+
+        let broken = repo.change("broken");
+        assert!(broken.error.is_some(), "metadata errors still surface");
+        assert_eq!(broken.summary, None);
+
+        let json = serde_json::to_value(&y).unwrap();
+        assert_eq!(json["summary"], "Y is missing.");
+        assert_eq!(json["title"], "Add Y");
     }
 
     #[test]

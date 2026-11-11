@@ -740,7 +740,7 @@ async fn run(args: Args) -> Result<(), String> {
                     base: None,
                     origin: String::new(),
                     skipped_ports: &[],
-                    lan_url: None,
+                    lan_url: info.lan_url.clone(),
                     empty_hint: false,
                     notes: vec![],
                 }));
@@ -818,6 +818,12 @@ async fn run(args: Args) -> Result<(), String> {
     let state = AppState::new(sources.clone(), config_manager.clone(), update_tx.clone(), config_update_tx.clone());
     spawn_watcher(state.clone(), config_update_tx);
 
+    // Inside a container the address is the container's, not the host's.
+    let lan_url = (ip.is_unspecified() && !startup::in_container())
+        .then(startup::lan_ip)
+        .flatten()
+        .map(|lan| startup::local_url(lan, port));
+
     let info = Info {
         name: startup::APP_NAME.to_string(),
         version: cli::VERSION.to_string(),
@@ -830,6 +836,7 @@ async fn run(args: Args) -> Result<(), String> {
         roots,
         sources: Vec::new(),
         changelog: cli::CHANGELOG_URL.to_string(),
+        lan_url: lan_url.clone(),
         reused: false,
     };
     let meta = Arc::new(info.clone());
@@ -877,11 +884,6 @@ async fn run(args: Args) -> Result<(), String> {
     if args.json {
         print_stdout(&format!("{}\n", serde_json::to_string(&announced).unwrap_or_default()));
     } else {
-        // Inside a container the address is the container's, not the host's.
-        let lan_url = (ip.is_unspecified() && !startup::in_container())
-            .then(startup::lan_ip)
-            .flatten()
-            .map(|lan| startup::local_url(lan, port));
         // With one searched folder, list projects relative to it.
         let base = match announced.roots.as_slice() {
             [single] => Some(single.clone()),

@@ -34,6 +34,10 @@ pub struct Info {
     pub roots: Vec<String>,
     pub sources: Vec<InfoSource>,
     pub changelog: String,
+    /// Address a phone on the same network can open; only when the server
+    /// listens on every interface (`--host 0.0.0.0`) outside a container.
+    #[serde(default)]
+    pub lan_url: Option<String>,
     /// Set on the CLI output when an existing server was reused.
     #[serde(default)]
     pub reused: bool,
@@ -372,8 +376,23 @@ mod tests {
             roots: scope.roots.clone(),
             sources: vec![],
             changelog: CHANGELOG_URL.into(),
+            lan_url: None,
             reused: false,
         }
+    }
+
+    #[test]
+    fn info_carries_the_phone_url_and_reads_servers_without_it() {
+        let scope = Scope { host: "0.0.0.0".into(), mode: "discovered".into(), config_path: None, roots: vec![] };
+        let info = Info { lan_url: Some("http://192.168.1.20:3000".into()), ..info_for(&scope, 3000) };
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["lanUrl"], "http://192.168.1.20:3000");
+
+        // A server from before lanUrl existed still parses (reuse detection).
+        let mut older = json.clone();
+        older.as_object_mut().unwrap().remove("lanUrl");
+        let parsed: Info = serde_json::from_value(older).unwrap();
+        assert_eq!(parsed.lan_url, None);
     }
 
     /// Minimal HTTP server answering /api/info with `info`.

@@ -1,23 +1,14 @@
 import { useState } from 'react';
 import { useTheme } from '../hooks/useTheme';
-import { Menu, Settings, Sun, Moon, Sparkles, Lightbulb } from 'lucide-react';
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetTrigger,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Menu, Settings, Sun, Moon, Lightbulb, Archive, Star, LayoutGrid, FileText } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import type { Source } from '../types';
+import { BrandMark, BrandName, GitHubIcon } from './Brand';
+import { PhoneAccess } from './PhoneAccess';
+import { OPENSPEC_URL, REPO_URL } from '@/lib/links';
 
 type View = 'kanban' | 'specs';
 
@@ -35,9 +26,95 @@ interface HeaderProps {
   /** Running server version, shown as a badge linking to the changelog */
   version?: string;
   changelogUrl?: string;
+  /** Where the server listens, for the "open on your phone" hint; omitted until known */
+  network?: { lanUrl?: string | null; host: string; port: number };
 }
 
 const DEFAULT_CHANGELOG_URL = 'https://github.com/ToruAI/openspec-ui/blob/main/CHANGELOG.md';
+
+const VIEWS: { value: View; label: string; Icon: typeof LayoutGrid }[] = [
+  { value: 'kanban', label: 'Board', Icon: LayoutGrid },
+  { value: 'specs', label: 'Specs', Icon: FileText },
+];
+
+const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background';
+
+function VersionBadge({ version, changelogUrl }: { version: string; changelogUrl: string }) {
+  return (
+    <a
+      href={changelogUrl}
+      target="_blank"
+      rel="noreferrer"
+      title="What's new in this version"
+      className={cn(
+        'rounded-md border border-border/80 px-1.5 py-0.5 text-[11px] font-mono leading-none text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors',
+        focusRing
+      )}
+    >
+      v{version}
+    </a>
+  );
+}
+
+function SourceSelect({
+  sources,
+  selectedSourceId,
+  onSourceChange,
+  className,
+}: Pick<HeaderProps, 'sources' | 'selectedSourceId' | 'onSourceChange'> & { className?: string }) {
+  return (
+    <Select value={selectedSourceId || 'all'} onValueChange={(val) => onSourceChange(val === 'all' ? null : val)}>
+      <SelectTrigger aria-label="Repo" className={cn('w-[180px] h-9 text-sm bg-background/50 border-border/70 shrink-0', className)}>
+        <SelectValue placeholder="All repos" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">All repos</SelectItem>
+        {sources.map((s) => (
+          <SelectItem key={s.id} value={s.id}>
+            <span className="truncate">{s.name}</span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function MenuItem({
+  onClick,
+  icon,
+  children,
+  pressed,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  pressed?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={pressed}
+      className={cn(
+        'flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-lg transition-colors',
+        pressed ? 'bg-muted font-medium text-foreground' : 'text-foreground hover:bg-muted',
+        focusRing
+      )}
+    >
+      <span className="text-muted-foreground">{icon}</span>
+      {children}
+    </button>
+  );
+}
+
+function MenuSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">{title}</p>
+      {children}
+    </div>
+  );
+}
 
 export function Header({
   currentView,
@@ -52,364 +129,223 @@ export function Header({
   onOpenNewIdea,
   version,
   changelogUrl = DEFAULT_CHANGELOG_URL,
+  network,
 }: HeaderProps) {
   const { theme, toggle } = useTheme();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const handleOpenSettings = () => {
-    setMobileMenuOpen(false);
-    onOpenSettings?.();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeThen = (fn?: () => void) => () => {
+    setMenuOpen(false);
+    fn?.();
   };
-
-  const Logo = () => (
-    <div className="flex items-center gap-2.5 group cursor-default select-none shrink-0">
-      <div className="relative">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-violet)] to-[var(--accent-cyan)] flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow duration-300">
-          <Sparkles className="h-4 w-4 text-white" />
-        </div>
-        <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[var(--accent-violet)] to-[var(--accent-cyan)] opacity-0 group-hover:opacity-40 blur-md transition-opacity duration-300" />
-      </div>
-      <span className="text-lg font-bold tracking-tight whitespace-nowrap">
-        <span className="text-gradient">Open</span>
-        <span className="text-foreground">Spec</span>
-      </span>
-      {version && (
-        <a
-          href={changelogUrl}
-          target="_blank"
-          rel="noreferrer"
-          title="What's new in this version"
-          className="cursor-pointer rounded-md border border-border/60 px-1.5 py-0.5 text-[11px] font-mono leading-none text-muted-foreground hover:text-foreground hover:border-border transition-colors"
-        >
-          v{version}
-        </a>
-      )}
-    </div>
-  );
-
-  const ViewToggle = ({ mobile = false }: { mobile?: boolean }) => {
-    const handleViewChange = (view: View) => {
-      onViewChange(view);
-      if (mobile) {
-        setMobileMenuOpen(false);
-      }
-    };
-
-    if (mobile) {
-      return (
-        <div className="space-y-1">
-          <button
-            onClick={() => handleViewChange('kanban')}
-            className={cn(
-              "flex items-center w-full px-3 py-2.5 text-sm rounded-lg transition-all duration-200",
-              currentView === 'kanban'
-                ? "bg-primary text-primary-foreground font-medium shadow-sm"
-                : "text-foreground hover:bg-muted"
-            )}
-          >
-            <span className="mr-3">📋</span>
-            Kanban Board
-          </button>
-          <button
-            onClick={() => handleViewChange('specs')}
-            className={cn(
-              "flex items-center w-full px-3 py-2.5 text-sm rounded-lg transition-all duration-200",
-              currentView === 'specs'
-                ? "bg-primary text-primary-foreground font-medium shadow-sm"
-                : "text-foreground hover:bg-muted"
-            )}
-          >
-            <span className="mr-3">📄</span>
-            Specifications
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <nav className="flex p-1 bg-muted/50 rounded-lg gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => handleViewChange('kanban')}
-          className={cn(
-            "h-8 px-3 rounded-md transition-all duration-200",
-            currentView === 'kanban'
-              ? "bg-background text-foreground shadow-sm font-medium"
-              : "text-muted-foreground hover:text-foreground hover:bg-transparent"
-          )}
-        >
-          Kanban
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => handleViewChange('specs')}
-          className={cn(
-            "h-8 px-3 rounded-md transition-all duration-200",
-            currentView === 'specs'
-              ? "bg-background text-foreground shadow-sm font-medium"
-              : "text-muted-foreground hover:text-foreground hover:bg-transparent"
-          )}
-        >
-          Specs
-        </Button>
-      </nav>
-    );
-  };
-
-  const SourceSelect = () => (
-    <Select
-      value={selectedSourceId || "all"}
-      onValueChange={(val) => onSourceChange(val === "all" ? null : val)}
-    >
-      <SelectTrigger className="w-[160px] md:w-[180px] h-9 text-sm bg-background/50 border-border/50 hover:border-border transition-colors shrink-0">
-        <SelectValue placeholder="All Projects" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="all">
-          <span className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-gradient-to-r from-[var(--accent-violet)] to-[var(--accent-cyan)] shrink-0" />
-            <span className="truncate">All Projects</span>
-          </span>
-        </SelectItem>
-        {sources.map(s => (
-          <SelectItem key={s.id} value={s.id}>
-            <span className="flex items-center gap-2 min-w-0">
-              <span className="w-2 h-2 rounded-full bg-[var(--accent-emerald)] shrink-0" />
-              <span className="truncate">{s.name}</span>
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-
-  const ThemeToggle = ({ mobile = false }: { mobile?: boolean }) => {
-    if (mobile) {
-      return (
-        <button
-          onClick={toggle}
-          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-lg text-foreground hover:bg-muted transition-all duration-200"
-          aria-label="Toggle theme"
-        >
-          {theme === 'dark' ? (
-            <>
-              <Sun className="h-4 w-4 text-amber-500" />
-              Light Mode
-            </>
-          ) : (
-            <>
-              <Moon className="h-4 w-4 text-indigo-500" />
-              Dark Mode
-            </>
-          )}
-        </button>
-      );
-    }
-
-    return (
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        onClick={toggle} 
-        aria-label="Toggle theme"
-        className="h-9 w-9 rounded-lg hover:bg-muted transition-colors"
-      >
-        {theme === 'dark' ? (
-          <Sun className="h-4 w-4 text-amber-500 transition-transform hover:rotate-45" />
-        ) : (
-          <Moon className="h-4 w-4 text-indigo-500 transition-transform hover:-rotate-12" />
-        )}
-      </Button>
-    );
-  };
-
-  const SettingsButton = ({ mobile = false }: { mobile?: boolean }) => {
-    if (mobile) {
-      return (
-        <button
-          onClick={handleOpenSettings}
-          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-lg text-foreground hover:bg-muted transition-all duration-200"
-          aria-label="Open settings"
-        >
-          <Settings className="h-4 w-4" />
-          Settings
-        </button>
-      );
-    }
-
-    return (
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        onClick={handleOpenSettings} 
-        aria-label="Open settings"
-        className="h-9 w-9 rounded-lg hover:bg-muted transition-colors"
-      >
-        <Settings className="h-4 w-4 transition-transform hover:rotate-90 duration-300" />
-      </Button>
-    );
-  };
-
-  const NewIdeaButton = ({ mobile = false }: { mobile?: boolean }) => {
-    if (mobile) {
-      return (
-        <button
-          onClick={() => {
-            onOpenNewIdea?.();
-            setMobileMenuOpen(false);
-          }}
-          className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-lg text-foreground hover:bg-muted transition-all duration-200"
-          aria-label="Create new idea"
-        >
-          <Lightbulb className="h-4 w-4" />
-          New Idea
-        </button>
-      );
-    }
-
-    return (
-      <Button
-        variant="default"
-        size="sm"
-        onClick={onOpenNewIdea}
-        className="h-9"
-      >
-        <Lightbulb className="h-4 w-4 mr-2" />
-        New Idea
-      </Button>
-    );
-  };
-
-  const ShowArchivedToggle = ({ mobile = false }: { mobile?: boolean }) => {
-    if (currentView !== 'kanban' || !onShowArchivedChange) {
-      return null;
-    }
-
-    const handleToggle = () => {
-      onShowArchivedChange(!showArchived);
-      if (mobile) {
-        setMobileMenuOpen(false);
-      }
-    };
-
-    if (mobile) {
-      return (
-        <button
-          onClick={handleToggle}
-          className={cn(
-            "flex items-center w-full px-3 py-2.5 text-sm rounded-lg transition-all duration-200",
-            showArchived
-              ? "bg-primary text-primary-foreground font-medium shadow-sm"
-              : "text-foreground hover:bg-muted"
-          )}
-          aria-label="Toggle archived changes"
-        >
-          <span className="mr-3">📦</span>
-          {showArchived ? 'Hide Archived' : 'Show Archived'}
-        </button>
-      );
-    }
-
-    return (
-      <Button
-        variant={showArchived ? 'default' : 'outline'}
-        size="sm"
-        onClick={handleToggle}
-        aria-label="Toggle archived changes"
-        className={cn(
-          "h-9 transition-all duration-200",
-          !showArchived && "bg-background/50 border-border/50 hover:border-border"
-        )}
-      >
-        {showArchived ? 'Hide Archived' : 'Show Archived'}
-      </Button>
-    );
-  };
+  // On the board, the workspace overview is the repo filter; Specs needs its own.
+  const showSourceSelect = sources.length > 1 && currentView === 'specs';
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 overflow-x-hidden">
-      <div className="max-w-7xl mx-auto px-4 overflow-hidden">
-        <div className="flex items-center justify-between h-16 overflow-hidden">
-          {/* Left: Logo + Desktop Nav */}
-          <div className="flex items-center gap-4 md:gap-6 min-w-0 flex-shrink overflow-hidden">
-            <Logo />
-            {/* Desktop view toggle */}
-            {showViewToggle && (
-              <div className="hidden md:block">
-                <ViewToggle />
-              </div>
-            )}
+    <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur-xl">
+      <div className="flex h-14 items-center justify-between gap-3 px-4 md:px-6">
+        <div className="flex min-w-0 items-center gap-3 md:gap-5">
+          <div
+            className="flex items-center gap-2 select-none"
+            title="OpenSpec UI: an independent, read-only board for OpenSpec changes"
+          >
+            <BrandMark />
+            <BrandName />
           </div>
+          {version && (
+            <span className="hidden lg:inline-flex">
+              <VersionBadge version={version} changelogUrl={changelogUrl} />
+            </span>
+          )}
+          {showViewToggle && (
+            <nav className="hidden md:flex items-center gap-0.5" aria-label="View">
+              {VIEWS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => onViewChange(value)}
+                  aria-current={currentView === value ? 'page' : undefined}
+                  className={cn(
+                    'h-8 rounded-md px-3 text-sm transition-colors',
+                    currentView === value
+                      ? 'bg-muted text-foreground font-medium'
+                      : 'text-muted-foreground hover:text-foreground',
+                    focusRing
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+          )}
+        </div>
 
-          {/* Right: Controls */}
-          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
-            {/* Show Archived toggle - visible on desktop when in kanban view */}
-            <div className="hidden md:block">
-              <ShowArchivedToggle />
-            </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div className="hidden md:flex items-center gap-1.5">
+            {currentView === 'kanban' && onShowArchivedChange && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onShowArchivedChange(!showArchived)}
+                aria-pressed={showArchived}
+                aria-label="Archived"
+                title={showArchived ? 'Hide archived changes' : 'Show archived changes'}
+                className={cn('h-9 text-muted-foreground', showArchived && 'bg-muted text-foreground')}
+              >
+                <Archive className="h-4 w-4 lg:mr-1.5" />
+                <span className="hidden lg:inline">Archived</span>
+              </Button>
+            )}
+            {showSourceSelect && (
+              <SourceSelect sources={sources} selectedSourceId={selectedSourceId} onSourceChange={onSourceChange} />
+            )}
+            {onOpenNewIdea && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onOpenNewIdea}
+                aria-label="New idea"
+                title="Capture an idea (saved to openspec/ideas/)"
+                className="h-9 text-muted-foreground"
+              >
+                <Lightbulb className="h-4 w-4 lg:mr-1.5" />
+                <span className="hidden lg:inline">New idea</span>
+              </Button>
+            )}
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              title="OpenSpec UI on GitHub. A star helps other OpenSpec users find it."
+              className={cn(
+                'inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors',
+                focusRing
+              )}
+            >
+              <GitHubIcon />
+              <Star className="h-3.5 w-3.5 hidden lg:block" aria-hidden />
+              <span className="hidden lg:inline">Star</span>
+              <span className="sr-only lg:hidden">OpenSpec UI on GitHub</span>
+            </a>
+            {network && <PhoneAccess lanUrl={network.lanUrl} host={network.host} port={network.port} />}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onOpenSettings}
+              aria-label="Settings"
+              title="Settings"
+              className="h-9 w-9 text-muted-foreground"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggle}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+            className="h-9 w-9 text-muted-foreground"
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
 
-            {/* Source select - visible on all sizes */}
-            <SourceSelect />
-
-            {/* New Idea button - visible on desktop */}
-            <div className="hidden md:block">
-              <NewIdeaButton />
-            </div>
-
-            {/* Settings button - visible on desktop */}
-            <div className="hidden md:block">
-              <SettingsButton />
-            </div>
-
-            {/* Theme toggle - visible on desktop */}
-            <div className="hidden md:block">
-              <ThemeToggle />
-            </div>
-
-            {/* Mobile menu */}
-            <div className="md:hidden">
-              <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label="Open menu" className="h-9 w-9">
-                    <Menu className="h-5 w-5" />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-[300px] p-0">
-                  <div className="flex flex-col h-full">
-                    <SheetHeader className="px-5 py-5 border-b border-border">
-                      <SheetTitle className="text-left flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-primary" />
-                        Menu
-                      </SheetTitle>
-                    </SheetHeader>
-                    <nav className="flex-1 px-4 py-5 space-y-6">
-                      {showViewToggle && (
-                        <div className="space-y-2">
-                          <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">View</p>
-                          <ViewToggle mobile />
-                        </div>
-                      )}
-                      {currentView === 'kanban' && onShowArchivedChange && (
-                        <div className="space-y-2">
-                          <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter</p>
-                          <ShowArchivedToggle mobile />
-                        </div>
-                      )}
-                      <div className="space-y-2">
-                        <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Preferences</p>
-                        <div className="space-y-1">
-                          <NewIdeaButton mobile />
-                          <SettingsButton mobile />
-                          <ThemeToggle mobile />
-                        </div>
+          <div className="md:hidden">
+            <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Open menu" className="h-9 w-9">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-[300px] p-0 gap-0">
+                <SheetHeader className="px-5 py-4 border-b border-border">
+                  <SheetTitle className="flex items-center gap-2 text-left">
+                    <BrandMark className="h-6 w-6" />
+                    <BrandName />
+                  </SheetTitle>
+                  <SheetDescription className="text-left text-xs">
+                    Read-only board for OpenSpec changes
+                  </SheetDescription>
+                </SheetHeader>
+                <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5" aria-label="Menu">
+                  {showViewToggle && (
+                    <MenuSection title="View">
+                      {VIEWS.map(({ value, label, Icon }) => (
+                        <MenuItem
+                          key={value}
+                          onClick={closeThen(() => onViewChange(value))}
+                          icon={<Icon className="h-4 w-4" />}
+                          pressed={currentView === value}
+                        >
+                          {label}
+                        </MenuItem>
+                      ))}
+                    </MenuSection>
+                  )}
+                  {showSourceSelect && (
+                    <MenuSection title="Repo">
+                      <div className="px-1">
+                        <SourceSelect
+                          sources={sources}
+                          selectedSourceId={selectedSourceId}
+                          onSourceChange={(id) => {
+                            onSourceChange(id);
+                            setMenuOpen(false);
+                          }}
+                          className="w-full"
+                        />
                       </div>
-                    </nav>
-                  </div>
-                </SheetContent>
-              </Sheet>
-            </div>
+                    </MenuSection>
+                  )}
+                  <MenuSection title="Board">
+                    {currentView === 'kanban' && onShowArchivedChange && (
+                      <MenuItem
+                        onClick={closeThen(() => onShowArchivedChange(!showArchived))}
+                        icon={<Archive className="h-4 w-4" />}
+                        pressed={showArchived}
+                      >
+                        {showArchived ? 'Hide archived' : 'Show archived'}
+                      </MenuItem>
+                    )}
+                    {onOpenNewIdea && (
+                      <MenuItem onClick={closeThen(onOpenNewIdea)} icon={<Lightbulb className="h-4 w-4" />}>
+                        New idea
+                      </MenuItem>
+                    )}
+                    <MenuItem onClick={closeThen(onOpenSettings)} icon={<Settings className="h-4 w-4" />}>
+                      Settings
+                    </MenuItem>
+                  </MenuSection>
+                  <MenuSection title="About">
+                    <div className="px-3 space-y-3 text-xs text-muted-foreground leading-relaxed">
+                      <p>
+                        An independent community tool for{' '}
+                        <a href={OPENSPEC_URL} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
+                          OpenSpec
+                        </a>
+                        , not made by the OpenSpec team.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={REPO_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={cn(
+                            'inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-foreground hover:bg-muted',
+                            focusRing
+                          )}
+                        >
+                          <GitHubIcon className="h-3.5 w-3.5" />
+                          <Star className="h-3.5 w-3.5" aria-hidden />
+                          Star on GitHub
+                        </a>
+                        {version && <VersionBadge version={version} changelogUrl={changelogUrl} />}
+                      </div>
+                    </div>
+                  </MenuSection>
+                </nav>
+              </SheetContent>
+            </Sheet>
           </div>
         </div>
       </div>
