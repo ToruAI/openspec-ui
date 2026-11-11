@@ -3,7 +3,7 @@ name: Release
 # One tag (vX.Y.Z) produces everything:
 #   GitHub Release : per-platform .zip (humans), per-platform .gz (npm launcher + install.sh),
 #                    install.sh, SHA256SUMS
-#   npm            : `openspec-ui` launcher package (opt-in, see NPM_PUBLISH below)
+#   npm            : `openspec-web` launcher package (opt-in, see NPM_PUBLISH below)
 #   ghcr.io        : multi-arch image ghcr.io/toruai/openspec-ui
 #
 # Manual run (workflow_dispatch) builds and tests everything but publishes
@@ -311,10 +311,10 @@ jobs:
   # ---------------------------------------------------------------------------
   # npm publishing is opt-in and skipped (not failed) until the owner enables it:
   #   1. Create the package once: either publish 0.x manually, or add a repo
-  #      secret NPM_TOKEN (granular access token, read+write on `openspec-ui`,
+  #      secret NPM_TOKEN (granular access token, read+write on `openspec-web`,
   #      bypass 2FA) so this job does the first publish.
   #   2. Add repo variable NPM_PUBLISH=true (Settings > Secrets and variables > Actions > Variables).
-  #   3. Optional, recommended afterwards: on npmjs.com > openspec-ui > Settings >
+  #   3. Optional, recommended afterwards: on npmjs.com > openspec-web > Settings >
   #      Trusted Publisher > GitHub Actions: owner ToruAI, repo openspec-ui,
   #      workflow release.yml. Then delete NPM_TOKEN; this job falls back to OIDC.
   # Provenance is attached automatically (public repo, public package).
@@ -345,8 +345,8 @@ jobs:
           PRERELEASE: ${{ needs.meta.outputs.prerelease }}
         run: |
           set -euo pipefail
-          if npm view "openspec-ui@${VERSION}" version >/dev/null 2>&1; then
-            echo "openspec-ui@${VERSION} is already on npm; nothing to do."
+          if npm view "openspec-web@${VERSION}" version >/dev/null 2>&1; then
+            echo "openspec-web@${VERSION} is already on npm; nothing to do."
             exit 0
           fi
           if [ -n "${NPM_TOKEN:-}" ]; then export NODE_AUTH_TOKEN="$NPM_TOKEN"; fi

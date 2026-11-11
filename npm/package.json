@@ -1,7 +1,7 @@
 {
-  "name": "openspec-ui",
+  "name": "openspec-web",
   "version": "0.0.0-dev",
-  "description": "Read-only kanban dashboard for OpenSpec changes and specs. Run it with: npx openspec-ui",
+  "description": "OpenSpec UI: a read-only kanban dashboard for OpenSpec changes and specs. Run it with: npx openspec-web",
   "license": "MIT",
   "bin": {
     "openspec-ui": "bin/openspec-ui.js"
@@ -22,7 +22,14 @@
   },
   "homepage": "https://github.com/ToruAI/openspec-ui#readme",
   "bugs": "https://github.com/ToruAI/openspec-ui/issues",
-  "keywords": ["openspec", "dashboard", "kanban", "spec-driven-development"],
+  "keywords": [
+    "openspec",
+    "dashboard",
+    "kanban",
+    "spec-driven-development",
+    "openspec-ui",
+    "web-ui"
+  ],
   "publishConfig": {
     "access": "public"
   },

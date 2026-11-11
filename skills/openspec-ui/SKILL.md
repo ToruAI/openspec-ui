@@ -12,7 +12,7 @@ description: Start the OpenSpec board (openspec-ui), a live read-only kanban of 
 Run from the folder to show (a repo, or a parent of several repos), or pass folders as arguments. A server is long-running, so background it and read the URL from its output. Use this exact shape (adjust nothing but optional folder arguments):
 
 ```sh
-OUT=$(mktemp); nohup npx -y openspec-ui --json </dev/null >"$OUT" 2>"$OUT.err" &
+OUT=$(mktemp); nohup npx -y openspec-web --json </dev/null >"$OUT" 2>"$OUT.err" &
 for i in $(seq 90); do [ -s "$OUT" ] && break; sleep 1; done; cat "$OUT" "$OUT.err"
 ```
 

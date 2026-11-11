@@ -13,7 +13,7 @@
 </picture>
 
 ```sh
-npx openspec-ui
+npx openspec-web
 ```
 
 Run it in a repo, or in a folder that holds several. It finds every `openspec/` directory, opens the board in your browser (when started from a terminal), and updates as files change. **[Try the live demo](https://toruai.github.io/openspec-ui/)** with sample data, nothing to install.
@@ -37,11 +37,11 @@ Run it in a repo, or in a folder that holds several. It finds every `openspec/` 
 
 ## Install
 
-`npx openspec-ui` needs Node.js 18+ and nothing else: the package is a small launcher that downloads the binary for your platform from the GitHub release, checks its SHA-256, and caches it. Other ways to run it:
+`npx openspec-web` needs Node.js 18+ and nothing else: the package is a small launcher that downloads the binary for your platform from the GitHub release, checks its SHA-256, and caches it. Other ways to run it:
 
 | How | Command |
 |---|---|
-| **npx** (macOS, Linux, Windows) | `npx openspec-ui` |
+| **npx** (macOS, Linux, Windows) | `npx openspec-web` |
 | **Install script** (macOS, Linux) | see below |
 | **Docker** | `docker run -p 127.0.0.1:3000:3000 -v ~/code:/repos ghcr.io/toruai/openspec-ui` |
 | **Download** | [Releases](https://github.com/ToruAI/openspec-ui/releases/latest): `.zip` for macOS (Apple Silicon, Intel), Linux (x86_64, arm64, static), Windows (x86_64) |

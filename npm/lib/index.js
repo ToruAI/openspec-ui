@@ -206,7 +206,7 @@ async function getBinary(o) {
   if (!expected) {
     throw new LauncherError(
       `This copy of the package (${version}) has no checksum for ${asset}, so it cannot download a binary safely.\n` +
-        `Install a published release (npx openspec-ui@latest), or set OPENSPEC_UI_BIN to a local binary.`
+        `Install a published release (npx openspec-web@latest), or set OPENSPEC_UI_BIN to a local binary.`
     );
   }
 

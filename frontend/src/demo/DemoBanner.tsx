@@ -35,7 +35,7 @@ export function DemoBanner() {
       <p className="min-w-0 flex-1">
         This is a live demo with sample data. Run{' '}
         <code className="rounded bg-background/70 px-1.5 py-0.5 font-mono text-xs text-foreground">
-          npx openspec-ui
+          npx openspec-web
         </code>{' '}
         in your own repo.{' '}
         <a

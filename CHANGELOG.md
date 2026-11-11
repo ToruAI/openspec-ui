@@ -6,13 +6,16 @@ The version number lives in `VERSION` and is stamped on `main` at merge — pull
 
 ## [Unreleased]
 
+### Changed
+- **The npm package is named `openspec-web`** (`npx openspec-web`). npm refused `openspec-ui` as too similar to an existing package, so 0.3.0 never reached npm under that name; the command it installs, the binary and everything else are still `openspec-ui`.
+
 ## [0.3.0] - 2026-11-11
 
 A relaunch: start it with one command in any folder, a board that uses OpenSpec's own stages, and a parser checked against the real OpenSpec CLI on every pull request and every week.
 
 ### Added
 - **Zero-config start.** `openspec-ui` in a folder shows every repo with an `openspec/` directory in it (three levels deep, `--depth N` for more); `openspec-ui ~/code` or `openspec-ui ./api ./web` picks the folders. No config file needed, and none is ever created. It takes port 3000 or the next free one, and opens the browser when started from an interactive terminal.
-- **One-command installs.** `npx openspec-ui` (a small launcher that downloads the release binary and checks its SHA-256), `curl -fsSL https://github.com/ToruAI/openspec-ui/releases/latest/download/install.sh | sh`, and a multi-arch image `ghcr.io/toruai/openspec-ui`. Every release now also ships a Linux arm64 build and a `SHA256SUMS` file.
+- **One-command installs.** `npx openspec-web` (a small launcher that downloads the release binary and checks its SHA-256), `curl -fsSL https://github.com/ToruAI/openspec-ui/releases/latest/download/install.sh | sh`, and a multi-arch image `ghcr.io/toruai/openspec-ui`. Every release now also ships a Linux arm64 build and a `SHA256SUMS` file.
 - **Checked against OpenSpec 1.17, every week.** Change status, the artifact chain and task counts are compared field by field with what `openspec list` and `openspec status` answer for ten fixture projects (1028 checks, part of `cargo test`). A scheduled workflow regenerates the fixtures with the newest OpenSpec release every Monday and on every pull request, so a format change in OpenSpec shows up as a failing check here.
 - **Workflow schemas.** The artifact chain comes from the change's schema (`.openspec.yaml`, then `openspec/config.yaml`, then `spec-driven`), so custom schemas, `skip_specs: true` (shown as skipped) and glob outputs work. A change OpenSpec cannot read shows the reason instead of a guessed chain. A repo whose planning lives in an OpenSpec store is reported as such (beta; the store is not followed).
 - **A board that answers "what next".** Planning cards show the chain with the next artifact and what the rest waits for ("Tasks waits for design"); repo tiles count active changes per stage and filter the board; an optional By repo layout; cards lead with a one-line summary of the change.

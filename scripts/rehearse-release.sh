@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Local rehearsal of a release: build what release.yml would build, package and
 # stamp it with the workflow's own scripts, and stand up a fake GitHub Releases
-# plus a throwaway npm registry, so `npx openspec-ui` can be exercised for real
+# plus a throwaway npm registry, so `npx openspec-web` can be exercised for real
 # before anything is tagged or published.
 #
 #   scripts/rehearse-release.sh up       build, assemble, start registry + asset server   (default)
@@ -236,9 +236,9 @@ cmd_up() {
   start_registry
   iso npm publish "$ST"/out/*.tgz --registry "http://127.0.0.1:$REG_PORT/" --tag latest --loglevel=error 2>&1 | tail -3 \
     || true
-  iso npm view openspec-ui version --registry "http://127.0.0.1:$REG_PORT/" | grep -qx "$NPM_VERSION" \
+  iso npm view openspec-web version --registry "http://127.0.0.1:$REG_PORT/" | grep -qx "$NPM_VERSION" \
     || die "published package not visible in the local registry"
-  echo "openspec-ui@$NPM_VERSION is in the local registry"
+  echo "openspec-web@$NPM_VERSION is in the local registry"
 
   if [ "${REHEARSE_SKIP_IMAGES:-}" != 1 ]; then
     say "image: docker build . (from source) and prebuilt target"
@@ -292,7 +292,7 @@ cmd_demo() { # fresh copy of demo/
 cmd_shell() {
   [ -f "$ST/env.sh" ] || die "not running; run '$0 up' first"
   cd "$(cat "$ST/demo-path")"
-  echo "Clean shell in $(pwd). Try:  npx -y openspec-ui"
+  echo "Clean shell in $(pwd). Try:  npx -y openspec-web"
   # shellcheck disable=SC1090
   exec env -i PATH="$PATH" TERM="${TERM:-dumb}" bash --noprofile --norc -c ". '$ST/env.sh'; exec bash --noprofile --norc -i"
 }
@@ -359,7 +359,7 @@ wait_line() { # file, pattern, seconds
 fresh_demo() { local d="$ST/verify-demo"; rm -rf "$d"; mkdir -p "$d"; (cd "$ROOT/demo" && tar -cf - --exclude .cache --exclude screenshots .) | (cd "$d" && tar -xf -); echo "$d"; }
 
 verify_host_npx() {
-  say "macOS host: npx -y openspec-ui (clean HOME, local registry)"
+  say "macOS host: npx -y openspec-web (clean HOME, local registry)"
   rm -rf "$ST/verify-home"; mkdir -p "$ST/verify-home"; : > "$ST/verify-home/.npmrc"
   local d out url pid
   d="$(fresh_demo)"; out="$ST/logs/verify-host-npx.out"; : > "$out"
@@ -367,10 +367,10 @@ verify_host_npx() {
     NPM_CONFIG_USERCONFIG="$ST/verify-home/.npmrc" NPM_CONFIG_GLOBALCONFIG="$ST/npmrc.global" \
     NPM_CONFIG_CACHE="$ST/verify-home/npm-cache" NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_REGISTRY="http://127.0.0.1:$REG_PORT/" OPENSPEC_UI_DOWNLOAD_BASE="http://127.0.0.1:$SITE_PORT/releases/download" \
-    OPENSPEC_UI_CACHE_DIR="$ST/verify-home/launcher-cache" npx -y openspec-ui > "$out" 2>&1 < /dev/null &)
+    OPENSPEC_UI_CACHE_DIR="$ST/verify-home/launcher-cache" npx -y openspec-web > "$out" 2>&1 < /dev/null &)
   if ! wait_line "$out" 'running at' 90; then bad "host npx starts" "$(tail -5 "$out" | tr '\n' ' ')"; return; fi
   url="$(sed -n 's/.*running at \([^ ]*\).*/\1/p' "$out" | head -1)"
-  ok "host: npx -y openspec-ui starts" "$(grep 'running at' "$out" | head -1)"
+  ok "host: npx -y openspec-web starts" "$(grep 'running at' "$out" | head -1)"
   check "host: downloaded via rehearsal assets, checksum verified, cached outside real cache" \
     "$(cd "$ST/verify-home/launcher-cache" && find . -type f | head -1)" test -x "$ST/verify-home/launcher-cache/$NPM_VERSION/$(host_asset | cut -d' ' -f1)/openspec-ui"
   local info n
@@ -378,20 +378,20 @@ verify_host_npx() {
   [ "$n" = 4 ] && ok "host: /api/info lists four repos" "sources=$n version=$(printf '%s' "$info" | json_get version)" || bad "host: /api/info four repos" "sources=$n"
   check "host: / serves the UI" 'id="root" present' sh -c "curl -fsS '$url/' | grep -q 'id=\"root\"'"
   local second
-  second="$(cd "$d" && tester npx -y openspec-ui --json 2>&1)"
+  second="$(cd "$d" && tester npx -y openspec-web --json 2>&1)"
   if printf '%s' "$second" | grep -q '"reused":[ ]*true'; then ok "host: second run reuses the server" "$(printf '%s' "$second" | head -c 160)"; else bad "host: second run reuses" "$second"; fi
   local ver
-  ver="$(cd "$d" && tester npx -y openspec-ui --version 2>&1)"
-  case "$ver" in *"$VERSION"*) ok "host: npx -y openspec-ui --version" "$ver" ;; *) bad "host: --version" "$ver" ;; esac
+  ver="$(cd "$d" && tester npx -y openspec-web --version 2>&1)"
+  case "$ver" in *"$VERSION"*) ok "host: npx -y openspec-web --version" "$ver" ;; *) bad "host: --version" "$ver" ;; esac
   pid="$(printf '%s' "$info" | json_get pid)"
   kill "$pid" 2>/dev/null || true
   sleep 1
-  tester npx -y openspec-ui --help > /dev/null 2>&1 || true
+  tester npx -y openspec-web --help > /dev/null 2>&1 || true
 }
 
 verify_container_npx() { # image, host-port, name
   local image="$1" port="$2" name="rh-npx-$3" d out info n
-  say "Container $image: npx -y openspec-ui --json --host 0.0.0.0"
+  say "Container $image: npx -y openspec-web --json --host 0.0.0.0"
   d="$(fresh_demo)"
   docker rm -f "$name" > /dev/null 2>&1 || true
   : > "$ST/logs/site-before.mark"
@@ -400,7 +400,7 @@ verify_container_npx() { # image, host-port, name
     -v "$d:/work/demo:ro" -w /work/demo \
     -e "NPM_CONFIG_REGISTRY=http://$CTR_HOST:$REG_PORT/" \
     -e "OPENSPEC_UI_DOWNLOAD_BASE=http://$CTR_HOST:$SITE_PORT/releases/download" \
-    "$image" npx -y openspec-ui --json --host 0.0.0.0 > /dev/null
+    "$image" npx -y openspec-web --json --host 0.0.0.0 > /dev/null
   local up=
   for _ in $(seq 1 90); do curl -fsS "http://127.0.0.1:$port/api/health" > /dev/null 2>&1 && { up=1; break; }; sleep 1; done
   docker logs "$name" > "$ST/logs/$name.log" 2>&1 || true
@@ -460,7 +460,7 @@ verify_tamper() {
   rm -rf "$ST/verify-home"; mkdir -p "$ST/verify-home"; : > "$ST/verify-home/.npmrc"
   if out="$(cd "$t" && env -i PATH="$PATH" HOME="$ST/verify-home" NPM_CONFIG_USERCONFIG="$ST/verify-home/.npmrc" NPM_CONFIG_GLOBALCONFIG="$ST/npmrc.global" \
       NPM_CONFIG_CACHE="$ST/verify-home/npm-cache" NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_REGISTRY="http://127.0.0.1:$REG_PORT/" \
-      OPENSPEC_UI_DOWNLOAD_BASE="http://127.0.0.1:$BAD_PORT/releases/download" OPENSPEC_UI_CACHE_DIR="$ST/verify-home/lc" npx -y openspec-ui --version 2>&1)"; then
+      OPENSPEC_UI_DOWNLOAD_BASE="http://127.0.0.1:$BAD_PORT/releases/download" OPENSPEC_UI_CACHE_DIR="$ST/verify-home/lc" npx -y openspec-web --version 2>&1)"; then
     bad "launcher rejects tampered asset" "it ran: $out"
   else
     case "$out" in *"Checksum mismatch"*) ok "launcher rejects tampered asset, nothing cached" "$(printf '%s' "$out" | grep -m1 'Checksum mismatch')" ;; *) bad "launcher tamper message" "$out" ;; esac

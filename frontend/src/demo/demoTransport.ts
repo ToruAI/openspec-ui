@@ -30,7 +30,7 @@ const FRESHEST_AGE_MS = 24 * 60 * 60 * 1000;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
 export const DEMO_READ_ONLY_MESSAGE =
-  'Sources are fixed in the live demo. Run `npx openspec-ui` in your own repo to point it at your projects.';
+  'Sources are fixed in the live demo. Run `npx openspec-web` in your own repo to point it at your projects.';
 
 let snapshotPromise: Promise<Snapshot> | null = null;
 let ideas: IdeaRecord[] | null = null;

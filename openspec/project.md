@@ -5,7 +5,7 @@ A local, read-only web board for OpenSpec: changes by stage, the artifact chain 
 ## Tech Stack
 - **Backend**: Rust (Axum), one binary with the frontend embedded (rust-embed); file watching + Server-Sent Events for live updates
 - **Frontend**: Vite + React + TypeScript, Tailwind CSS, shadcn/ui primitives
-- **Distribution**: GitHub Release archives (macOS, Linux musl, Windows), `npx openspec-ui` launcher (`npm/`), `install.sh`, container image `ghcr.io/toruai/openspec-ui`
+- **Distribution**: GitHub Release archives (macOS, Linux musl, Windows), `npx openspec-web` launcher (`npm/`), `install.sh`, container image `ghcr.io/toruai/openspec-ui`
 
 ## Conventions
 - Read-only toward OpenSpec: never write specs or changes. The only writes are idea notes under `openspec/ideas/` and the config file when one is in use.

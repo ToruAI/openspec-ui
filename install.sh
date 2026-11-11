@@ -26,7 +26,7 @@ main() {
   case "$os" in
     Darwin) os_id=darwin ;;
     Linux) os_id=linux ;;
-    *) die "unsupported OS '$os'. On Windows use: npx openspec-ui (or download the .zip from the releases page)." ;;
+    *) die "unsupported OS '$os'. On Windows use: npx openspec-web (or download the .zip from the releases page)." ;;
   esac
   case "$arch" in
     arm64 | aarch64) arch_id=aarch64 ;;

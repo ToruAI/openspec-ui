@@ -1,8 +1,10 @@
-# openspec-ui
+# openspec-web
+
+The npm launcher for [OpenSpec UI](https://github.com/ToruAI/openspec-ui). The installed command is still `openspec-ui`.
 
 Read-only kanban dashboard for [OpenSpec](https://github.com/Fission-AI/OpenSpec) changes and specs.
 
-    npx openspec-ui
+    npx openspec-web
 
 This package is a small launcher. On first run it downloads the matching binary
 from the GitHub Release for this exact version, verifies its SHA-256 against
