@@ -43,6 +43,13 @@ function platformId(platform = process.platform, arch = process.arch) {
   return id;
 }
 
+// OPENSPEC_UI_DOWNLOAD_BASE is shared with install.sh, which takes .../releases;
+// the launcher wants .../releases/download. Accept both forms.
+function releaseBase(base) {
+  const b = String(base).replace(/\/+$/, '');
+  return /\/releases$/.test(b) ? `${b}/download` : b;
+}
+
 const assetName = (id) => `openspec-ui-${id}.gz`;
 const exeName = (id) => (id.startsWith('windows') ? 'openspec-ui.exe' : 'openspec-ui');
 
@@ -203,7 +210,7 @@ async function getBinary(o) {
     );
   }
 
-  const url = `${baseUrl.replace(/\/+$/, '')}/v${version}/${asset}`;
+  const url = `${releaseBase(baseUrl)}/v${version}/${asset}`;
   log(`openspec-ui: downloading ${asset} (v${version}) ...`);
   const gz = await fetchBuffer(url, { env, ca });
 
@@ -320,6 +327,7 @@ module.exports = {
   DEFAULT_BASE,
   platformId,
   assetName,
+  releaseBase,
   exeName,
   defaultCacheDir,
   proxyFor,
