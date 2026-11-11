@@ -1,20 +1,106 @@
 name: Release
 
+# One tag (vX.Y.Z) produces everything:
+#   GitHub Release : per-platform .zip (humans), per-platform .gz (npm launcher + install.sh),
+#                    install.sh, SHA256SUMS
+#   npm            : `openspec-ui` launcher package (opt-in, see NPM_PUBLISH below)
+#   ghcr.io        : multi-arch image ghcr.io/toruai/openspec-ui
+#
+# Manual run (workflow_dispatch) builds and tests everything but publishes
+# nothing unless you tick "publish". Without a tag it builds the version in VERSION.
+#
+# One-time owner setup for npm: see "npm-publish" below.
+
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build (e.g. v0.2.0)'
-        required: true
+        description: 'Existing tag to build (e.g. v0.2.0). Empty = build the selected branch as v<VERSION>.'
+        required: false
+        default: ''
+      publish:
+        description: 'Actually publish (GitHub Release, npm, ghcr). Leave off for a dry run.'
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/toruai/openspec-ui
 
 jobs:
+  meta:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve tag and check version coherence
+        id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_PUBLISH: ${{ github.event.inputs.publish }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = push ]; then
+            tag="$REF_NAME"; publish=true
+          else
+            tag="${INPUT_TAG:-v$(tr -d '[:space:]' < VERSION)}"; publish="${INPUT_PUBLISH:-false}"
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::'$tag' is not a vX.Y.Z tag"; exit 1; }
+          version="${tag#v}"
+
+          # VERSION == Cargo.toml == tag; npm placeholder untouched.
+          scripts/check-version.sh "$tag"
+
+          # Never rebuild over a published release: the npm package pins checksums of its assets.
+          if [ "$publish" = true ] && gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists. Published assets are immutable (npm pins their checksums). Delete the release and tag deliberately if you really need to redo it."
+            exit 1
+          fi
+
+          prerelease=false; [[ "$version" == *-* ]] && prerelease=true
+          { echo "tag=$tag"; echo "version=$version"; echo "publish=$publish"; echo "prerelease=$prerelease"; } >> "$GITHUB_OUTPUT"
+          echo "Building $tag (publish=$publish)"
+
+  launcher-tests:
+    name: Launcher tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [18, 22]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+        working-directory: npm
+
   build:
-    name: ${{ matrix.label }}
+    name: Build ${{ matrix.asset }}
+    needs: meta
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -22,20 +108,30 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
-            label: macOS (Apple Silicon)
             asset: darwin-aarch64
+            exe: openspec-ui
+            smoke: true
           - os: macos-latest
             target: x86_64-apple-darwin
-            label: macOS (Intel)
             asset: darwin-x86_64
+            exe: openspec-ui
+            smoke: false # cross-compiled on an arm64 runner
+          # Linux binaries are static musl builds: they run on Alpine and on any glibc.
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            label: Linux (x86_64)
+            target: x86_64-unknown-linux-musl
             asset: linux-x86_64
+            exe: openspec-ui
+            smoke: true
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            asset: linux-aarch64
+            exe: openspec-ui
+            smoke: true
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            label: Windows (x86_64)
             asset: windows-x86_64
+            exe: openspec-ui.exe
+            smoke: true
 
     steps:
       - uses: actions/checkout@v5
@@ -49,7 +145,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       # The frontend is embedded into the binary via rust-embed, so it must be
-      # built before cargo runs — otherwise ../frontend/dist is empty and the
+      # built before cargo runs - otherwise ../frontend/dist is empty and the
       # binary serves nothing.
       - name: Build frontend
         working-directory: frontend
@@ -61,6 +157,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install musl tools
+        if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
@@ -70,50 +170,290 @@ jobs:
         working-directory: backend
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package (unix)
-        if: runner.os != 'Windows'
+      - name: Smoke test (starts, serves health and the embedded UI)
+        if: matrix.smoke
+        shell: bash
+        env:
+          BIN: backend/target/${{ matrix.target }}/release/${{ matrix.exe }}
         run: |
-          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
-          STAGE="openspec-ui-${VERSION}-${{ matrix.asset }}"
-          mkdir -p "$STAGE"
-          cp "backend/target/${{ matrix.target }}/release/openspec-ui" "$STAGE/"
-          cp README.md LICENSE "$STAGE/" 2>/dev/null || cp README.md "$STAGE/"
-          zip -r "${STAGE}.zip" "$STAGE"
+          set -euo pipefail
+          src="$(cygpath -m "$PWD/example-openspec" 2>/dev/null || echo "$PWD/example-openspec")"
+          mkdir -p smoke
+          printf '{"sources":[{"name":"example","path":"%s"}],"port":3917}' "$src" > smoke/config.json
+          PORT=3917 "$BIN" --config smoke/config.json &
+          pid=$!
+          ok=false
+          for _ in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:3917/api/health >/dev/null 2>&1; then ok=true; break; fi
+            sleep 0.5
+          done
+          if [ "$ok" != true ]; then kill "$pid" 2>/dev/null || true; echo "::error::binary did not become healthy"; exit 1; fi
+          curl -fsS http://127.0.0.1:3917/ | grep -q 'id="root"' || { kill "$pid" || true; echo "::error::embedded frontend missing"; exit 1; }
+          kill "$pid" 2>/dev/null || true
+          BINARY="$BIN" scripts/check-version.sh "${{ needs.meta.outputs.tag }}"
 
-      - name: Package (windows)
+      - name: Package .gz (npm launcher, install.sh)
+        shell: bash
+        env:
+          BIN: backend/target/${{ matrix.target }}/release/${{ matrix.exe }}
+        run: |
+          mkdir -p dist
+          gzip -9 -n -c "$BIN" > "dist/openspec-ui-${{ matrix.asset }}.gz"
+
+      - name: Package .zip (unix)
+        if: runner.os != 'Windows'
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          STAGE="openspec-ui-${TAG}-${{ matrix.asset }}"
+          mkdir -p "$STAGE"
+          cp "backend/target/${{ matrix.target }}/release/${{ matrix.exe }}" "$STAGE/"
+          cp README.md "$STAGE/"
+          if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
+          zip -r "dist/${STAGE}.zip" "$STAGE"
+
+      - name: Package .zip (windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
         run: |
-          $version = if ("${{ github.event.inputs.tag }}") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
-          $stage = "openspec-ui-$version-${{ matrix.asset }}"
+          $stage = "openspec-ui-$env:TAG-${{ matrix.asset }}"
           New-Item -ItemType Directory -Path $stage | Out-Null
-          Copy-Item "backend/target/${{ matrix.target }}/release/openspec-ui.exe" $stage
+          Copy-Item "backend/target/${{ matrix.target }}/release/${{ matrix.exe }}" $stage
           Copy-Item README.md $stage
           if (Test-Path LICENSE) { Copy-Item LICENSE $stage }
-          Compress-Archive -Path $stage -DestinationPath "$stage.zip"
+          Compress-Archive -Path $stage -DestinationPath "dist/$stage.zip"
 
       - uses: actions/upload-artifact@v5
         with:
-          name: ${{ matrix.asset }}
-          path: '*.zip'
+          name: dist-${{ matrix.asset }}
+          path: dist/*
+          if-no-files-found: error
 
-  release:
-    needs: build
+  assemble:
+    name: Assemble release files
+    needs: [meta, build, launcher-tests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: actions/download-artifact@v6
         with:
+          pattern: dist-*
           path: dist
           merge-multiple: true
 
-      - name: Publish release
+      - name: Check completeness, add install.sh, write SHA256SUMS
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          for id in darwin-aarch64 darwin-x86_64 linux-x86_64 linux-aarch64 windows-x86_64; do
+            [ -f "dist/openspec-ui-$id.gz" ] || { echo "::error::missing openspec-ui-$id.gz"; exit 1; }
+            [ -f "dist/openspec-ui-${TAG}-$id.zip" ] || { echo "::error::missing openspec-ui-${TAG}-$id.zip"; exit 1; }
+          done
+          cp install.sh dist/install.sh
+          (cd dist && sha256sum -- * | LC_ALL=C sort -k2 > ../SHA256SUMS)
+          mv SHA256SUMS dist/SHA256SUMS
+          cat dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-dist
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [meta, assemble]
+    if: needs.meta.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-dist
+          path: dist
+
+      # No `--clobber`, no fallback upload: a release is created once.
+      - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
         run: |
-          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
-          gh release create "$VERSION" dist/*.zip \
-            --title "$VERSION" \
-            --notes-from-tag \
-            || gh release upload "$VERSION" dist/*.zip --clobber
+          flags=()
+          [ "$PRERELEASE" = true ] && flags+=(--prerelease)
+          gh release create "$TAG" dist/* --title "$TAG" --notes-from-tag --verify-tag "${flags[@]}"
+
+  npm-package:
+    name: Build npm package
+    needs: [meta, assemble]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-dist
+          path: dist
+
+      # Checksums come from the very SHA256SUMS that is uploaded to the release.
+      - name: Stamp version and checksums, pack
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          node npm/scripts/stamp.js "$VERSION" dist/SHA256SUMS
+          (cd npm && npm test)
+          mkdir -p out
+          (cd npm && npm pack --pack-destination ../out)
+          tar -tzf out/*.tgz
+          tar -xzOf out/*.tgz package/checksums.json
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: npm-tarball
+          path: out/*.tgz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # npm publishing is opt-in and skipped (not failed) until the owner enables it:
+  #   1. Create the package once: either publish 0.x manually, or add a repo
+  #      secret NPM_TOKEN (granular access token, read+write on `openspec-ui`,
+  #      bypass 2FA) so this job does the first publish.
+  #   2. Add repo variable NPM_PUBLISH=true (Settings > Secrets and variables > Actions > Variables).
+  #   3. Optional, recommended afterwards: on npmjs.com > openspec-ui > Settings >
+  #      Trusted Publisher > GitHub Actions: owner ToruAI, repo openspec-ui,
+  #      workflow release.yml. Then delete NPM_TOKEN; this job falls back to OIDC.
+  # Provenance is attached automatically (public repo, public package).
+  # ---------------------------------------------------------------------------
+  npm-publish:
+    name: Publish to npm
+    needs: [meta, release, npm-package]
+    if: needs.meta.outputs.publish == 'true' && vars.NPM_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24 # npm >= 11.5.1 is required for trusted publishing
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: npm-tarball
+          path: out
+
+      - name: Publish
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if npm view "openspec-ui@${VERSION}" version >/dev/null 2>&1; then
+            echo "openspec-ui@${VERSION} is already on npm; nothing to do."
+            exit 0
+          fi
+          if [ -n "${NPM_TOKEN:-}" ]; then export NODE_AUTH_TOKEN="$NPM_TOKEN"; fi
+          tag=latest; [ "$PRERELEASE" = true ] && tag=next
+          npm publish out/*.tgz --provenance --access public --tag "$tag"
+
+  image:
+    name: Container image
+    needs: [meta, assemble]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-dist
+          path: dist
+
+      # The image reuses the tested musl release binaries (no compiling under QEMU).
+      - name: Unpack binaries for the build context
+        run: |
+          mkdir -p bins/amd64 bins/arm64
+          gzip -dc dist/openspec-ui-linux-x86_64.gz > bins/amd64/openspec-ui
+          gzip -dc dist/openspec-ui-linux-aarch64.gz > bins/arm64/openspec-ui
+          chmod +x bins/*/openspec-ui
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build amd64 image and smoke test it
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prebuilt
+          build-contexts: bins=bins
+          platforms: linux/amd64
+          load: true
+          tags: openspec-ui:smoke
+
+      - name: Run the image
+        run: |
+          docker run -d --name smoke -p 3000:3000 -v "$PWD/example-openspec:/workspace/openspec:ro" openspec-ui:smoke
+          for _ in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1 && ok=1 && break
+            sleep 0.5
+          done
+          docker logs smoke
+          [ "${ok:-}" = 1 ] || { echo "::error::container never became healthy"; exit 1; }
+          curl -fsS http://127.0.0.1:3000/ | grep -q 'id="root"'
+          docker rm -f smoke
+
+      - name: Compute tags
+        id: tags
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+        run: |
+          t="${IMAGE}:${VERSION}"
+          if [ "$PRERELEASE" != true ]; then
+            t="$t,${IMAGE}:${VERSION%.*},${IMAGE}:latest"
+          fi
+          echo "list=$t" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ghcr.io
+        if: needs.meta.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build multi-arch (push only when publishing)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prebuilt
+          build-contexts: bins=bins
+          platforms: linux/amd64,linux/arm64
+          push: ${{ needs.meta.outputs.publish == 'true' }}
+          tags: ${{ steps.tags.outputs.list }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
