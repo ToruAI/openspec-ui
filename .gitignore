@@ -68,3 +68,6 @@ coverage/
 __pycache__/
 *.pyc
 
+
+# Agent worktrees
+.claude/worktrees/
