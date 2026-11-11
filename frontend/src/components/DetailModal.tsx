@@ -24,8 +24,8 @@ interface DetailModalProps {
   onClose: () => void;
 }
 
-/** Tabs with dedicated rendering; any other artifact gets a generic document tab. */
-const BUILTIN_TABS = ['proposal', 'specs', 'tasks', 'design'];
+/** Generic document tabs are prefixed so a custom artifact can never collide with a built-in tab. */
+const DOC_TAB = 'doc:';
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
@@ -65,9 +65,11 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
   if (change?.hasSpecs) availableTabs.push('specs');
   if (change?.hasTasks) availableTabs.push('tasks');
   if (change?.hasDesign) availableTabs.push('design');
-  // Artifacts a custom workflow schema defines, once the detail has loaded.
-  const extraDocuments = (detail?.documents ?? []).filter((d) => !BUILTIN_TABS.includes(d.artifactId));
-  for (const doc of extraDocuments) availableTabs.push(doc.artifactId);
+  // Every other written artifact gets a document tab once the detail has
+  // loaded: artifacts a custom schema adds, and built-in ids whose files live
+  // somewhere the dedicated tab does not read (e.g. design generating design/*.md).
+  const extraDocuments = (detail?.documents ?? []).filter((d) => !availableTabs.includes(d.artifactId));
+  for (const doc of extraDocuments) availableTabs.push(DOC_TAB + doc.artifactId);
   // The last tab picked, while it exists; otherwise the first one this change has.
   const currentTab = availableTabs.includes(activeTab) ? activeTab : (availableTabs[0] ?? 'proposal');
 
@@ -149,7 +151,7 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
               style={{ gridTemplateColumns: `repeat(${availableTabs.length}, 1fr)` }}
             >
               {availableTabs.map((tab) => {
-                const config = artifactMeta(tab);
+                const config = artifactMeta(tab.startsWith(DOC_TAB) ? tab.slice(DOC_TAB.length) : tab);
                 return (
                   <TabsTrigger 
                     key={tab}
@@ -237,7 +239,7 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
                     </TabsContent>
 
                     {extraDocuments.map((doc) => (
-                      <TabsContent key={doc.artifactId} value={doc.artifactId} className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
+                      <TabsContent key={doc.artifactId} value={DOC_TAB + doc.artifactId} className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
                         <div className="space-y-8 overflow-hidden">
                           {doc.files.map((file, idx) => (
                             <div key={file.path} className="overflow-hidden">

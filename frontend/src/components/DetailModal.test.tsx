@@ -59,6 +59,13 @@ describe('DetailModal', () => {
     expect(screen.getByText('research-first')).toBeInTheDocument();
   });
 
+  it('gives a built-in artifact id a document tab when its files are not where the built-in tab looks', () => {
+    detail.documents = [{ artifactId: 'design', files: [{ path: 'design/api.md', content: '# API' }] }];
+    render(<DetailModal change={{ ...change, hasTasks: false }} onClose={vi.fn()} />);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Design']);
+    expect(screen.getByText('API')).toBeInTheDocument();
+  });
+
   it('shows the error instead of the chain when OpenSpec cannot read the change', () => {
     render(<DetailModal change={{ ...change, artifacts: [], error: 'Invalid .openspec.yaml: schema is required' }} onClose={vi.fn()} />);
     expect(screen.getByRole('alert')).toHaveTextContent('schema is required');
