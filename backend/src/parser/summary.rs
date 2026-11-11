@@ -153,6 +153,7 @@ fn clean_inline(text: &str) -> String {
                 chars.next();
             }
             '`' => {}
+            '[' if text_has_link_close(&chars) => {}
             ']' if chars.peek() == Some(&'(') => {
                 // Skip the link target.
                 for t in chars.by_ref() {
@@ -161,11 +162,15 @@ fn clean_inline(text: &str) -> String {
                     }
                 }
             }
-            '[' => {}
             _ => out.push(c),
         }
     }
     out.trim().to_string()
+}
+
+/// Does a `](` follow, i.e. is the `[` just consumed the start of a link?
+fn text_has_link_close(rest: &std::iter::Peekable<std::str::Chars<'_>>) -> bool {
+    rest.clone().collect::<String>().find("](").is_some_and(|i| !rest.clone().take(i).any(|c| c == '['))
 }
 
 fn collapse_whitespace(text: &str) -> String {
@@ -220,6 +225,12 @@ mod tests {
         )]);
         let s = summarize(dir.path());
         assert_eq!(s.summary.as_deref(), Some("Refunds are all-or-nothing today. See the issue and refund.rs."));
+    }
+
+    #[test]
+    fn brackets_that_are_not_links_survive() {
+        assert_eq!(clean_inline("read items[0] and [the docs](https://x.y)"), "read items[0] and the docs");
+        assert_eq!(clean_inline("[draft] tidy up"), "[draft] tidy up");
     }
 
     #[test]
