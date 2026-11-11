@@ -661,6 +661,15 @@ fn print_stdout(text: &str) {
     let _ = out.flush();
 }
 
+/// The phone address for a server listening on every interface.
+/// Inside a container the address is the container's, not the host's.
+fn lan_url_for(ip: std::net::IpAddr, port: u16) -> Option<String> {
+    (ip.is_unspecified() && !startup::in_container())
+        .then(startup::lan_ip)
+        .flatten()
+        .map(|lan| startup::local_url(lan, port))
+}
+
 fn maybe_open_browser(args: &Args, url: &str) {
     let tty = std::io::stdout().is_terminal();
     if startup::should_open_browser(args.no_open, args.json, tty, |k| env::var(k).ok(), startup::in_container()) {
@@ -728,6 +737,7 @@ async fn run(args: Args) -> Result<(), String> {
     let (listener, skipped_ports) = match startup::bind(ip, port, requested_by.as_deref(), &scope).await? {
         Bound::Reused(mut info) => {
             info.reused = true;
+            info.lan_url = lan_url_for(ip, info.port);
             if args.json {
                 print_stdout(&format!("{}\n", serde_json::to_string(&info).unwrap_or_default()));
             } else {
@@ -814,11 +824,7 @@ async fn run(args: Args) -> Result<(), String> {
     let state = AppState::new(sources.clone(), config_manager.clone(), update_tx.clone(), config_update_tx.clone());
     spawn_watcher(state.clone(), config_update_tx);
 
-    // Inside a container the address is the container's, not the host's.
-    let lan_url = (ip.is_unspecified() && !startup::in_container())
-        .then(startup::lan_ip)
-        .flatten()
-        .map(|lan| startup::local_url(lan, port));
+    let lan_url = lan_url_for(ip, port);
 
     let info = Info {
         name: startup::APP_NAME.to_string(),
