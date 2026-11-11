@@ -1,0 +1,12 @@
+name: personal
+version: 1
+artifacts:
+  - id: note
+    generates: note.md
+    description: Note
+    template: x.md
+  - id: tasks
+    generates: tasks.md
+    description: Tasks
+    template: x.md
+    requires: [note]

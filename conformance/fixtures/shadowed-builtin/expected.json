@@ -1,0 +1,58 @@
+{
+  "case": "shadowed-builtin",
+  "description": "A project-local schema named spec-driven takes precedence over the built-in one.",
+  "openspecVersion": "1.17.0",
+  "userData": false,
+  "root": {
+    "source": "nearest"
+  },
+  "list": [
+    {
+      "name": "local-flow",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    }
+  ],
+  "status": {
+    "local-flow": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "review",
+          "outputPath": "review.md",
+          "status": "blocked",
+          "requires": [
+            "tasks"
+          ],
+          "missingDeps": [
+            "tasks"
+          ]
+        }
+      ]
+    }
+  }
+}

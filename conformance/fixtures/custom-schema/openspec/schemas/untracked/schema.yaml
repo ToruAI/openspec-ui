@@ -1,0 +1,10 @@
+name: untracked
+version: 1
+artifacts:
+  - id: tasks
+    generates: todo.md
+    description: Todo list
+    template: x.md
+apply:
+  requires: [tasks]
+  tracks: null

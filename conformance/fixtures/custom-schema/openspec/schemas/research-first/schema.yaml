@@ -1,0 +1,26 @@
+name: research-first
+version: 1
+description: Research before proposing; tasks split across files
+artifacts:
+  - id: research
+    generates: research.md
+    description: Research notes
+    template: research.md
+  - id: proposal
+    generates: proposal.md
+    description: Proposal
+    template: proposal.md
+    requires: [research]
+  - id: plan
+    generates: "plan/*.md"
+    description: Plan documents
+    template: plan.md
+    requires: [proposal]
+  - id: tasks
+    generates: "tasks/*.md"
+    description: Task files
+    template: tasks.md
+    requires: [plan, research]
+apply:
+  requires: [tasks]
+  tracks: "tasks/*.md"

@@ -1,0 +1,328 @@
+{
+  "case": "metadata",
+  "description": ".openspec.yaml contents: valid extras, unknown keys, and every way it can be invalid.",
+  "openspecVersion": "1.17.0",
+  "userData": false,
+  "root": {
+    "source": "nearest"
+  },
+  "list": [
+    {
+      "name": ".hidden-change",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "affected-areas",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "created-not-a-date",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "empty-metadata",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "extension-keys",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "invalid-yaml",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "missing-schema-key",
+      "archived": false,
+      "completedTasks": 1,
+      "totalTasks": 1,
+      "status": "complete"
+    },
+    {
+      "name": "skip-specs-not-boolean",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "unknown-keys",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "unknown-schema",
+      "archived": false,
+      "completedTasks": 1,
+      "totalTasks": 2,
+      "status": "in-progress"
+    },
+    {
+      "name": "with-goal",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    }
+  ],
+  "status": {
+    "affected-areas": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "ready",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "blocked",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": [
+            "specs",
+            "design"
+          ]
+        }
+      ]
+    },
+    "created-not-a-date": {
+      "ok": false,
+      "code": "change_error",
+      "message": "Invalid metadata: [\n  {\n    \"origin\": \"string\",\n    \"code\": \"invalid_format\",\n    \"format\": \"regex\",\n    \"pattern\": \"/^\\\\d{4}-\\\\d{2}-\\\\d{2}$/\",\n    \"path\": [\n      \"created\"\n    ],\n    \"message\": \"created must be YYYY-MM-DD format\"\n  }\n]"
+    },
+    "empty-metadata": {
+      "ok": false,
+      "code": "change_error",
+      "message": "Invalid metadata: [\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received null\"\n  }\n]"
+    },
+    "extension-keys": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "ready",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "blocked",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": [
+            "specs",
+            "design"
+          ]
+        }
+      ]
+    },
+    "invalid-yaml": {
+      "ok": false,
+      "code": "change_error",
+      "message": "Invalid YAML in metadata file: Flow sequence in block collection must be sufficiently indented and end with a ] at line 2, column 1:\n\nschema: [unclosed\n\n^\n"
+    },
+    "missing-schema-key": {
+      "ok": false,
+      "code": "change_error",
+      "message": "Invalid metadata: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"schema\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]"
+    },
+    "skip-specs-not-boolean": {
+      "ok": false,
+      "code": "change_error",
+      "message": "Invalid metadata: [\n  {\n    \"expected\": \"boolean\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"skip_specs\"\n    ],\n    \"message\": \"Invalid input: expected boolean, received string\"\n  }\n]"
+    },
+    "unknown-keys": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 1,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "ready",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "blocked",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": [
+            "specs",
+            "design"
+          ]
+        }
+      ]
+    },
+    "unknown-schema": {
+      "ok": false,
+      "code": "change_error",
+      "message": "Unknown schema 'does-not-exist'. Available: spec-driven"
+    },
+    "with-goal": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "blocked",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": [
+            "specs",
+            "design"
+          ]
+        }
+      ]
+    }
+  }
+}

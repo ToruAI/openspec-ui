@@ -1,0 +1,85 @@
+{
+  "case": "nested-wrapper",
+  "description": "A folder that wraps change directories is not itself a change.",
+  "openspecVersion": "1.17.0",
+  "userData": false,
+  "root": {
+    "source": "nearest"
+  },
+  "list": [
+    {
+      "name": "flat",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "team-a",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks",
+      "nested": [
+        "team-a/login",
+        "team-a/signup"
+      ]
+    }
+  ],
+  "status": {
+    "flat": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "blocked",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": [
+            "specs",
+            "design"
+          ]
+        }
+      ]
+    },
+    "team-a": {
+      "ok": false,
+      "code": "change_error",
+      "message": "\"team-a\" is not a change: it is a folder wrapping openspec/changes/team-a/login/, openspec/changes/team-a/signup/. A change must be a directory directly under openspec/changes/, so those nested directories are invisible to OpenSpec while the folder around them is reported as a change. Nested paths are supported under openspec/specs/ only. Rename each nested change to a flat name (for example \"team-a-login\")."
+    }
+  }
+}
