@@ -7,7 +7,9 @@
 #   OPENSPEC_UI_VERSION       version to install, e.g. 0.3.0 (default: latest release)
 #   OPENSPEC_UI_INSTALL_DIR   target directory (default: $HOME/.local/bin)
 #   OPENSPEC_UI_DOWNLOAD_BASE release URL base, for mirrors/tests
-#                             (default: https://github.com/ToruAI/openspec-ui/releases)
+#                             (default: https://github.com/ToruAI/openspec-ui/releases;
+#                             a trailing /download is accepted, so the same value
+#                             works for the npm launcher, which uses .../releases/download)
 #
 # No sudo. Safe to re-run: the binary is replaced atomically.
 
@@ -15,6 +17,8 @@ set -eu
 
 main() {
   repo_base="${OPENSPEC_UI_DOWNLOAD_BASE:-https://github.com/ToruAI/openspec-ui/releases}"
+  repo_base="${repo_base%/}"
+  repo_base="${repo_base%/download}"
   install_dir="${OPENSPEC_UI_INSTALL_DIR:-$HOME/.local/bin}"
 
   os="$(uname -s)"

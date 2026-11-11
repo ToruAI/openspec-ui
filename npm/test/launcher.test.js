@@ -98,6 +98,16 @@ test('downloads, verifies, caches; second call is a cache hit', async () => {
   assert.equal(hits.length, 1, 'no second request');
 });
 
+test('download base: .../releases and .../releases/download both work (shared with install.sh)', async () => {
+  assert.equal(lib.releaseBase('https://h/o/r/releases'), 'https://h/o/r/releases/download');
+  assert.equal(lib.releaseBase('https://h/o/r/releases/'), 'https://h/o/r/releases/download');
+  assert.equal(lib.releaseBase('https://h/o/r/releases/download/'), 'https://h/o/r/releases/download');
+  const gz = reset();
+  routes['/releases/download' + ASSET_PATH] = (req, res) => res.writeHead(200).end(gz);
+  const p = await lib.getBinary({ version: VERSION, checksums: stamped(gz), baseUrl: base + '/releases', cacheDir: tmp() });
+  assert.ok(fs.existsSync(p));
+});
+
 test('follows redirects to another host path', async () => {
   const gz = reset();
   routes[ASSET_PATH] = (req, res) => res.writeHead(302, { Location: '/cdn/blob' }).end();

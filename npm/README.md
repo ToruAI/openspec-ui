@@ -12,7 +12,7 @@ passed through.
 Environment variables:
 
 - `OPENSPEC_UI_BIN` - run this local binary instead of downloading.
-- `OPENSPEC_UI_DOWNLOAD_BASE` - mirror of `https://github.com/ToruAI/openspec-ui/releases/download` (layout `<base>/v<version>/openspec-ui-<platform>.gz`).
+- `OPENSPEC_UI_DOWNLOAD_BASE` - mirror of `https://github.com/ToruAI/openspec-ui/releases/download` (layout `<base>/v<version>/openspec-ui-<platform>.gz`). A base ending in `/releases` works too, so the same value serves `install.sh`.
 - `OPENSPEC_UI_CACHE_DIR` - where binaries are cached.
 - `HTTPS_PROXY` / `NO_PROXY` - respected for downloads.
 
