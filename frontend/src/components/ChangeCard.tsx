@@ -1,7 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import type { Change } from '../types';
 import { cn } from '@/lib/utils';
-import { changeArtifacts } from '@/lib/artifacts';
+import { changeArtifacts, waitingSummary } from '@/lib/artifacts';
 import { splitArchivedName, stageOf } from '@/lib/board';
 import { ArtifactChain } from './ArtifactChain';
 
@@ -48,6 +48,8 @@ export function ChangeCard({ change, onClick, repo }: ChangeCardProps) {
   const warnings = change.warnings ?? [];
   const summary = change.summary || change.title;
   const archived = stage === 'archived' ? splitArchivedName(change.name) : null;
+  // Screen readers get this per artifact from the chain itself.
+  const waiting = waitingSummary(artifacts);
 
   return (
     <article
@@ -92,6 +94,11 @@ export function ChangeCard({ change, onClick, repo }: ChangeCardProps) {
       {(showChain || hasTasks) && (
         <div className="mt-2 space-y-2">
           {showChain && <ArtifactChain artifacts={artifacts} error={change.error} />}
+          {showChain && !change.error && waiting && (
+            <p className="text-[11px] leading-snug text-muted-foreground line-clamp-2" aria-hidden>
+              {waiting}
+            </p>
+          )}
           {hasTasks && stage !== 'archived' && <TaskBar done={stats.done} total={stats.total} />}
         </div>
       )}

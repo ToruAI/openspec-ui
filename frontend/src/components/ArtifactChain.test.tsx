@@ -25,7 +25,7 @@ describe('ArtifactChain', () => {
     );
     const labels = [...container.querySelectorAll('[data-status]')].map((el) => el.textContent);
     // Status is spelled out for screen readers, not only shown by colour and icon.
-    expect(labels).toEqual(['Research, written', 'Proposalnext', 'Implementation plan, waiting']);
+    expect(labels).toEqual(['Research, written', 'Proposalnext', 'Implementation plan, waiting for proposal']);
     expect(screen.getByTitle('Waiting for proposal')).toBeInTheDocument();
   });
 

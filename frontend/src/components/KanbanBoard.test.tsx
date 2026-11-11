@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { Change, Idea, Source } from '../types';
 
 let mobile = true;
-vi.mock('../hooks/useMediaQuery', () => ({ useIsMobile: () => mobile }));
+vi.mock('../hooks/useMediaQuery', () => ({ useIsMobile: () => mobile, useMediaQuery: () => !mobile }));
 
 const { KanbanBoard } = await import('./KanbanBoard');
 

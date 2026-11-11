@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { TouchEvent } from 'react';
 import { ChevronLeft, FolderOpen, Columns3, Rows3, Plus, SearchX, Sparkles, AlertTriangle } from 'lucide-react';
-import { useIsMobile } from '../hooks/useMediaQuery';
+import { useIsMobile, useMediaQuery } from '../hooks/useMediaQuery';
 import type { Source, Change, Idea } from '../types';
 import { ChangeCard } from './ChangeCard';
 import { IdeaCard } from './IdeaCard';
@@ -183,6 +183,9 @@ export function KanbanBoard({
   searchedRoots,
 }: KanbanBoardProps) {
   const isMobile = useIsMobile();
+  // Tiles need about 1024px; below 1280px the tools move under the overview.
+  const roomy = useMediaQuery('(min-width: 1024px)');
+  const wide = useMediaQuery('(min-width: 1280px)');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortByState] = useState<SortOption>(() =>
     readStored(SORT_KEY, ['name-asc', 'name-desc', 'progress-asc', 'progress-desc'] as const, 'name-asc')
@@ -304,7 +307,7 @@ export function KanbanBoard({
             selectedId={selectedSourceId}
             onSelect={onSourceChange}
             colorOf={colorOf}
-            compact={isMobile}
+            variant={isMobile ? 'strip' : roomy ? 'tiles' : 'chips'}
           />
         )}
         <CenteredMessage icon={<Sparkles className="h-8 w-8" />} title={`No changes in ${where} yet`}>
@@ -355,7 +358,7 @@ export function KanbanBoard({
       selectedId={selectedSourceId}
       onSelect={onSourceChange}
       colorOf={colorOf}
-      compact={isMobile}
+      variant={isMobile ? 'strip' : roomy ? 'tiles' : 'chips'}
     />
   );
 
@@ -508,7 +511,7 @@ export function KanbanBoard({
     <div className="flex h-full min-h-0 flex-col gap-3">
       {/* Workspace + tools */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="min-w-0 flex-1">
+        <div className={cn('min-w-0 flex-1', overview && !wide && 'basis-full')}>
           {overview || (
             singleRepo && (
               <div className="flex items-center gap-2 min-w-0" title={singleRepo.path}>
@@ -523,7 +526,7 @@ export function KanbanBoard({
             )
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className={cn('flex items-center gap-2 shrink-0', overview && !wide && 'ml-auto')}>
           <SearchBar id={SEARCH_INPUT_ID} value={searchQuery} onChange={setSearchQuery} placeholder="Search changes" />
           <SortDropdown value={sortBy} onChange={setSortBy} />
           {multiRepo && !selectedSourceId && <LayoutToggle layout={layout} onChange={setLayout} />}

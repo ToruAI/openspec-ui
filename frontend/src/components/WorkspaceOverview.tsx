@@ -9,8 +9,11 @@ interface WorkspaceOverviewProps {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   colorOf: (id: string) => string;
-  /** Phone: one scrolling row of compact chips */
-  compact?: boolean;
+  /**
+   * tiles: one card per repo (up to five, wide screens); chips: small pills
+   * that wrap; strip: pills in one scrolling row, for phones.
+   */
+  variant?: 'tiles' | 'chips' | 'strip';
 }
 
 function stageSentence(summary: RepoSummary): string {
@@ -89,8 +92,8 @@ function Tile({
         'flex min-w-[156px] max-w-[220px] flex-1 basis-0 flex-col gap-1.5 rounded-lg border px-3 py-2 text-left transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
         selected
-          ? 'border-foreground/40 bg-card shadow-sm'
-          : 'border-border/70 bg-card/50 hover:border-foreground/20 hover:bg-card'
+          ? 'border-foreground bg-card shadow-sm ring-1 ring-foreground'
+          : 'border-border/70 bg-card/50 hover:border-foreground/30 hover:bg-card'
       )}
     >
       <div className="flex items-center gap-1.5 min-w-0">
@@ -116,9 +119,10 @@ function Tile({
  * Every repo on the board at a glance: active changes by stage, tasks
  * checked, and anything OpenSpec can't read. Doubles as the repo filter.
  */
-export function WorkspaceOverview({ total, repos, selectedId, onSelect, colorOf, compact }: WorkspaceOverviewProps) {
+export function WorkspaceOverview({ total, repos, selectedId, onSelect, colorOf, variant = 'tiles' }: WorkspaceOverviewProps) {
+  const compact = variant === 'strip';
   // Tiles while they fit in a row; past that, chips that wrap.
-  if (compact || repos.length > 5) {
+  if (variant !== 'tiles' || repos.length > 5) {
     const chips = [{ summary: total, id: null as string | null }, ...repos.map((r) => ({ summary: r, id: r.id }))];
     return (
       <div

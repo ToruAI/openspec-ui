@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { X, FileText, Loader2, AlertTriangle } from 'lucide-react';
 import { useChange } from '../hooks/useApi';
@@ -108,9 +108,18 @@ function NotWritten({ artifact, isNext }: { artifact: Artifact; isNext: boolean 
 }
 
 export function DetailModal({ change, onClose, repo }: DetailModalProps) {
-  const { change: detail, loading } = useChange(change?.id || null);
+  const { change: detail, loading, refetch } = useChange(change?.id || null);
   const [activeTab, setActiveTab] = useState<string>('proposal');
   const isMobile = useIsMobile();
+
+  // The list refreshes on every file change; when it hands us a new copy of
+  // this change, reload the documents too so the tabs match the header.
+  const seen = useRef(change);
+  useEffect(() => {
+    if (seen.current === change) return;
+    seen.current = change;
+    refetch();
+  }, [change, refetch]);
 
   if (!change) return null;
 

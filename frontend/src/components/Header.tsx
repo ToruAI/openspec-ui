@@ -152,7 +152,7 @@ export function Header({
             <BrandName />
           </div>
           {version && (
-            <span className="hidden md:inline-flex">
+            <span className="hidden lg:inline-flex">
               <VersionBadge version={version} changelogUrl={changelogUrl} />
             </span>
           )}
@@ -187,19 +187,28 @@ export function Header({
                 size="sm"
                 onClick={() => onShowArchivedChange(!showArchived)}
                 aria-pressed={showArchived}
+                aria-label="Archived"
+                title={showArchived ? 'Hide archived changes' : 'Show archived changes'}
                 className={cn('h-9 text-muted-foreground', showArchived && 'bg-muted text-foreground')}
               >
-                <Archive className="h-4 w-4 mr-1.5" />
-                Archived
+                <Archive className="h-4 w-4 lg:mr-1.5" />
+                <span className="hidden lg:inline">Archived</span>
               </Button>
             )}
             {showSourceSelect && (
               <SourceSelect sources={sources} selectedSourceId={selectedSourceId} onSourceChange={onSourceChange} />
             )}
             {onOpenNewIdea && (
-              <Button variant="ghost" size="sm" onClick={onOpenNewIdea} className="h-9 text-muted-foreground">
-                <Lightbulb className="h-4 w-4 mr-1.5" />
-                New idea
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onOpenNewIdea}
+                aria-label="New idea"
+                title="Capture an idea (saved to openspec/ideas/)"
+                className="h-9 text-muted-foreground"
+              >
+                <Lightbulb className="h-4 w-4 lg:mr-1.5" />
+                <span className="hidden lg:inline">New idea</span>
               </Button>
             )}
             <span className="mx-1 h-5 w-px bg-border" aria-hidden />
@@ -214,8 +223,9 @@ export function Header({
               )}
             >
               <GitHubIcon />
-              <Star className="h-3.5 w-3.5" aria-hidden />
-              <span>Star</span>
+              <Star className="h-3.5 w-3.5 hidden lg:block" aria-hidden />
+              <span className="hidden lg:inline">Star</span>
+              <span className="sr-only lg:hidden">OpenSpec UI on GitHub</span>
             </a>
             {network && <PhoneAccess lanUrl={network.lanUrl} host={network.host} port={network.port} />}
             <Button

@@ -22,8 +22,9 @@ const detail: ChangeDetail = {
   ],
 };
 
+const refetch = vi.fn();
 vi.mock('../hooks/useApi', () => ({
-  useChange: () => ({ change: detail, loading: false, error: null }),
+  useChange: () => ({ change: detail, loading: false, error: null, refetch }),
 }));
 vi.mock('../hooks/useMediaQuery', () => ({ useIsMobile: () => false }));
 
@@ -98,6 +99,14 @@ describe('DetailModal', () => {
     );
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Design']);
     expect(screen.getByText('API')).toBeInTheDocument();
+  });
+
+  it('reloads the documents when a live update brings a new copy of the change', () => {
+    refetch.mockClear();
+    const { rerender } = render(<DetailModal change={change} onClose={vi.fn()} />);
+    expect(refetch).not.toHaveBeenCalled();
+    rerender(<DetailModal change={{ ...change, taskStats: { done: 2, total: 2 } }} onClose={vi.fn()} />);
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 
   it('shows the error instead of the chain when OpenSpec cannot read the change', () => {

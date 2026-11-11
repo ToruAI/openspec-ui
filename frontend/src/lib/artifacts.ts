@@ -46,6 +46,23 @@ export function joinWords(words: string[]): string {
   return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
 }
 
+/**
+ * What the unwritten artifacts are waiting for, in one line:
+ * "Specs and design wait for proposal; tasks waits for specs and design".
+ */
+export function waitingSummary(artifacts: Artifact[]): string | null {
+  const groups = new Map<string, string[]>();
+  for (const a of artifacts) {
+    if (a.status !== 'blocked' || a.missingDeps.length === 0) continue;
+    const deps = joinWords(a.missingDeps.map((d) => artifactMeta(d).label.toLowerCase()));
+    groups.set(deps, [...(groups.get(deps) ?? []), artifactMeta(a.id).label.toLowerCase()]);
+  }
+  if (groups.size === 0) return null;
+  const parts = [...groups].map(([deps, ids]) => `${joinWords(ids)} ${ids.length === 1 ? 'waits' : 'wait'} for ${deps}`);
+  const line = parts.join('; ');
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
 /** Tooltip text, in the same terms `openspec status` uses. */
 export function artifactTitle(artifact: Artifact): string {
   switch (artifact.status) {

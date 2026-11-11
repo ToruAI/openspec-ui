@@ -10,6 +10,7 @@ import {
   stageOf,
 } from './board';
 import { parseTasks } from './tasks';
+import { waitingSummary } from './artifacts';
 
 const artifact = (id: string, status: Artifact['status']): Artifact => ({
   id,
@@ -139,5 +140,15 @@ describe('parseTasks', () => {
       { kind: 'task', done: true, text: '1.2 Index', depth: 0 },
       { kind: 'markdown', text: 'Notes here' },
     ]);
+  });
+});
+
+describe('waitingSummary', () => {
+  it('says what each unwritten artifact waits for, grouped', () => {
+    const blocked = (id: string, deps: string[]): Artifact => ({ ...artifact(id, 'blocked'), missingDeps: deps });
+    expect(
+      waitingSummary([artifact('proposal', 'ready'), blocked('specs', ['proposal']), blocked('design', ['proposal']), blocked('tasks', ['specs', 'design'])])
+    ).toBe('Specs and design wait for proposal; tasks waits for specs and design');
+    expect(waitingSummary([artifact('proposal', 'done'), artifact('tasks', 'ready')])).toBeNull();
   });
 });

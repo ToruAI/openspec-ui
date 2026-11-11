@@ -1,6 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import type { Artifact } from '../types';
-import { ARTIFACT_STATUS, artifactMeta, artifactTitle, nextArtifactId } from '@/lib/artifacts';
+import { ARTIFACT_STATUS, artifactMeta, artifactTitle, joinWords, nextArtifactId } from '@/lib/artifacts';
 import { cn } from '@/lib/utils';
 
 interface ArtifactChainProps {
@@ -71,7 +71,11 @@ export function ArtifactChain({ artifacts, error, warnings = [], className }: Ar
             {isNext ? (
               <span className="text-[10px] font-medium opacity-80">next</span>
             ) : (
-              <span className="sr-only">, {statusLabel}</span>
+              <span className="sr-only">
+                , {artifact.status === 'blocked' && artifact.missingDeps.length > 0
+                  ? `waiting for ${joinWords(artifact.missingDeps)}`
+                  : statusLabel}
+              </span>
             )}
           </li>
         );
