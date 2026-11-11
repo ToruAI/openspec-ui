@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-21
+goal: A subscriber outage of an hour should not lose events or flood the
+  subscriber when it returns.

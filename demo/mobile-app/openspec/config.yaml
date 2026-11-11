@@ -1,0 +1,7 @@
+schema: spec-driven
+
+context: |
+  Fernhill Goods mobile app for iOS and Android, built with React Native and TypeScript.
+  Talks to the same backend as the web storefront; payments go through payments-api.
+  Minimum supported: iOS 16 and Android 9. All screens must work with system font scaling at 200% and with VoiceOver / TalkBack.
+  Release train: one store release every two weeks, features behind remote flags until the following release.

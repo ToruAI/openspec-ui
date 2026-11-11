@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-22
+goal: Reopen the app signed in with Face ID or fingerprint instead of typing a
+  password.
