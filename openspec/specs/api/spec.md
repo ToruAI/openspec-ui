@@ -237,3 +237,12 @@ Permanently deletes an idea file from the source directory.
 Returns 200 OK on success.
 
 
+
+## Request safety
+
+There is no authentication, so the server limits what a request can reach:
+
+- **Host check.** Every request's `Host` must be a loopback name or address, an IP address, the machine's host name (and `.local` form), or a name given with `--allowed-host` / `OPENSPEC_UI_ALLOWED_HOSTS`. Others get `403` with a plain-text explanation naming the flag. This holds whatever address the server binds to.
+- **Origin check.** `POST`, `PUT` and `DELETE` requests carrying an `Origin` are accepted only from an allow-listed name, from the same host and port the request was sent to, or from an origin in `CORS_ALLOWED_ORIGINS`.
+- **Sources are local-only.** `PUT /api/config/sources` returns `403` unless the client connects from the same machine; `GET /api/config` reports this as `sourcesEditable`.
+- **Containment.** Spec names (`GET /api/specs/:id`) must be plain relative paths resolving to a `.md` file under `specs/` or directly in the OpenSpec directory. Idea ids are file names (`[A-Za-z0-9._-]`, no leading dot); others get `400`. Any file or symlink resolving outside the source's OpenSpec directory is treated as absent, and idea files are never written or deleted through a symlink.
