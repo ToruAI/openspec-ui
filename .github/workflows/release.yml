@@ -177,9 +177,9 @@ jobs:
           BIN: backend/target/${{ matrix.target }}/release/${{ matrix.exe }}
         run: |
           set -euo pipefail
-          src="$(cygpath -m "$PWD/example-openspec" 2>/dev/null || echo "$PWD/example-openspec")"
+          src="$(cygpath -m "$PWD/demo/storefront/openspec" 2>/dev/null || echo "$PWD/demo/storefront/openspec")"
           mkdir -p smoke
-          printf '{"sources":[{"name":"example","path":"%s"}],"port":3917}' "$src" > smoke/config.json
+          printf '{"sources":[{"name":"storefront","path":"%s"}],"port":3917}' "$src" > smoke/config.json
           PORT=3917 "$BIN" --config smoke/config.json &
           pid=$!
           ok=false
