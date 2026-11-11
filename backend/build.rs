@@ -40,11 +40,9 @@ fn main() {
     // fresh clone. Create it empty and say so; release builds are guarded by a
     // smoke test that checks the embedded UI is really there.
     let dist = Path::new(&manifest_dir).join("..").join("frontend").join("dist");
-    if !dist.exists() {
-        if fs::create_dir_all(&dist).is_ok() {
-            println!(
-                "cargo:warning=frontend/dist was missing; built without the web UI. Run `npm run build` in frontend/ and rebuild to embed it"
-            );
-        }
+    if !dist.exists() && fs::create_dir_all(&dist).is_ok() {
+        println!(
+            "cargo:warning=frontend/dist was missing; built without the web UI. Run `npm run build` in frontend/ and rebuild to embed it"
+        );
     }
 }
