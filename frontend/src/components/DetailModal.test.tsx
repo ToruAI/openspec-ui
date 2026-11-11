@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { Change, ChangeDetail } from '../types';
 
 const detail: ChangeDetail = {
@@ -52,16 +52,50 @@ describe('DetailModal', () => {
     warnings: [],
   };
 
-  it('adds a tab for each artifact a custom schema defines, and shows the schema', () => {
+  it('shows one tab per artifact in chain order, written or not, and the schema', () => {
     render(<DetailModal change={change} onClose={vi.fn()} />);
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['Tasks', 'Research']);
+    expect(tabs).toEqual(['Research', 'Proposalnext', 'Tasks']);
     expect(screen.getByText('research-first')).toBeInTheDocument();
   });
 
-  it('gives a built-in artifact id a document tab when its files are not where the built-in tab looks', () => {
+  it('renders tasks as a checklist rather than raw [x] markers', () => {
+    render(<DetailModal change={change} onClose={vi.fn()} />);
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /Tasks/ }));
+    expect(screen.getByText('Done:')).toBeInTheDocument();
+    expect(screen.queryByText(/\[x\]/)).not.toBeInTheDocument();
+  });
+
+  it('says what an artifact that is not written yet is waiting for', () => {
+    render(
+      <DetailModal
+        change={{
+          ...change,
+          artifacts: [
+            ...change.artifacts,
+            { id: 'plan', outputPath: 'plan.md', status: 'blocked', requires: ['proposal'], missingDeps: ['proposal'] },
+          ],
+        }}
+        onClose={vi.fn()}
+      />
+    );
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /Proposal/ }));
+    expect(screen.getByText(/next artifact to write/)).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /Plan/ }));
+    expect(screen.getByText(/waits for proposal/)).toBeInTheDocument();
+  });
+
+  it('shows the files an artifact wrote, wherever its schema puts them', () => {
     detail.documents = [{ artifactId: 'design', files: [{ path: 'design/api.md', content: '# API' }] }];
-    render(<DetailModal change={{ ...change, hasTasks: false }} onClose={vi.fn()} />);
+    render(
+      <DetailModal
+        change={{
+          ...change,
+          artifacts: [{ id: 'design', outputPath: 'design/*.md', status: 'done', requires: [], missingDeps: [] }],
+        }}
+        onClose={vi.fn()}
+      />
+    );
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Design']);
     expect(screen.getByText('API')).toBeInTheDocument();
   });
