@@ -15,6 +15,7 @@
 //! - Tasks are counted in the files of the artifact `apply.tracks` names (or
 //!   the artifact with id `tasks`), falling back to `tasks.md`.
 
+use super::contain::Root;
 use super::tasks::count_tasks;
 use super::{Artifact, ArtifactStatus, TaskStats};
 use globset::{GlobBuilder, GlobMatcher};
@@ -572,19 +573,29 @@ fn compile(pattern: &str) -> Option<GlobMatcher> {
 
 /// Files an artifact's `generates` resolves to (`resolveArtifactOutputs`).
 /// Regular files only; dot files and dot directories never match a glob.
-pub fn resolve_outputs(change_dir: &Path, generates: &str) -> Vec<PathBuf> {
+///
+/// Symlinks are followed only while they stay inside `root` (the source's
+/// OpenSpec directory): one pointing elsewhere counts as absent, for the
+/// board's status and for the content shown alike, and a link to `/` is
+/// never walked.
+pub fn resolve_outputs(change_dir: &Path, generates: &str, root: &Root) -> Vec<PathBuf> {
     if !is_glob(generates) {
-        let path = change_dir.join(generates);
-        return if path.is_file() { vec![path] } else { Vec::new() };
+        return root.file(&change_dir.join(generates)).into_iter().collect();
     }
     let Some(matcher) = compile(generates) else {
         return Vec::new();
     };
+    if root.contain(change_dir).is_none() {
+        return Vec::new();
+    }
     let mut matches: Vec<PathBuf> = WalkDir::new(change_dir)
         .follow_links(true)
         .min_depth(1)
         .into_iter()
-        .filter_entry(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .filter_entry(|e| {
+            !e.file_name().to_string_lossy().starts_with('.')
+                && (!e.path_is_symlink() || root.contain(e.path()).is_some())
+        })
         .flatten()
         .filter(|e| e.file_type().is_file())
         .filter(|e| {
@@ -683,7 +694,7 @@ fn count_task_files(files: &[PathBuf]) -> TaskStats {
     stats
 }
 
-pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs) -> ChangeAnalysis {
+pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs, root: &Root) -> ChangeAnalysis {
     let metadata = read_metadata(change_dir, schemas);
 
     let (schema_name, skip_specs, warnings, mut error) = match &metadata {
@@ -722,13 +733,10 @@ pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDi
     let mut task_files = schema
         .as_ref()
         .and_then(tracked_tasks_generates)
-        .map(|generates| resolve_outputs(change_dir, generates))
+        .map(|generates| resolve_outputs(change_dir, generates, root))
         .unwrap_or_default();
     if task_files.is_empty() {
-        let fallback = change_dir.join("tasks.md");
-        if fallback.is_file() {
-            task_files.push(fallback);
-        }
+        task_files.extend(root.file(&change_dir.join("tasks.md")));
     }
     let task_stats = (!task_files.is_empty()).then(|| count_task_files(&task_files));
 
@@ -748,7 +756,7 @@ pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDi
     let mut completed: HashSet<&str> = schema
         .artifacts
         .iter()
-        .filter(|a| !resolve_outputs(change_dir, &a.generates).is_empty())
+        .filter(|a| !resolve_outputs(change_dir, &a.generates, root).is_empty())
         .map(|a| a.id.as_str())
         .collect();
     let mut skipped: HashSet<&str> = HashSet::new();
@@ -846,8 +854,8 @@ fn has_any_file_under(dir: &Path) -> bool {
         })
 }
 
-fn looks_like_change(dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs) -> bool {
-    if CHANGE_ROOT_MARKERS.iter().any(|m| dir.join(m).is_file()) {
+fn looks_like_change(dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs, root: &Root) -> bool {
+    if CHANGE_ROOT_MARKERS.iter().any(|m| root.file(&dir.join(m)).is_some()) {
         return true;
     }
     if has_any_file_under(&dir.join("specs")) {
@@ -865,7 +873,7 @@ fn looks_like_change(dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs) -> b
         .map(|s| {
             s.artifacts
                 .iter()
-                .any(|a| !resolve_outputs(dir, &a.generates).is_empty())
+                .any(|a| !resolve_outputs(dir, &a.generates, root).is_empty())
         })
         .unwrap_or(false)
 }
@@ -891,8 +899,9 @@ pub fn find_nested_changes(
     name: &str,
     openspec_dir: &Path,
     schemas: &SchemaDirs,
+    root: &Root,
 ) -> Vec<String> {
-    if looks_like_change(change_dir, openspec_dir, schemas) {
+    if looks_like_change(change_dir, openspec_dir, schemas, root) {
         return Vec::new();
     }
     let has_own_file = std::fs::read_dir(change_dir)
@@ -912,6 +921,7 @@ pub fn find_nested_changes(
         found: &mut Vec<String>,
         openspec_dir: &Path,
         schemas: &SchemaDirs,
+        root: &Root,
     ) {
         if depth > MAX_NESTING_DEPTH {
             return;
@@ -919,15 +929,15 @@ pub fn find_nested_changes(
         for child in subdirectories(dir) {
             let path = dir.join(&child);
             let id = format!("{prefix}/{child}");
-            if looks_like_change(&path, openspec_dir, schemas) {
+            if looks_like_change(&path, openspec_dir, schemas, root) {
                 found.push(id);
             } else {
-                collect(&path, &id, depth + 1, found, openspec_dir, schemas);
+                collect(&path, &id, depth + 1, found, openspec_dir, schemas, root);
             }
         }
     }
     let mut found = Vec::new();
-    collect(change_dir, name, 1, &mut found, openspec_dir, schemas);
+    collect(change_dir, name, 1, &mut found, openspec_dir, schemas, root);
     found.sort();
     found
 }

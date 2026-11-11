@@ -196,20 +196,21 @@ async fn get_spec_detail(
         .find(|s| s.id == source_id && s.valid)
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Try different path formats
-    let spec_paths = [
-        format!("{}/spec.md", spec_name),
-        format!("{}.md", spec_name),
-        spec_name.to_string(),
-    ];
+    parser::get_spec_detail(&source.path, source_id, spec_name)
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
 
-    for spec_path in &spec_paths {
-        if let Some(detail) = parser::get_spec_detail(&source.path, source_id, spec_path) {
-            return Ok(Json(detail));
-        }
-    }
-
-    Err(StatusCode::NOT_FOUND)
+/// Idea file errors as HTTP: a refused id is the client's fault (400), a
+/// missing idea 404, anything else 500.
+fn idea_error(action: &str, e: std::io::Error) -> (StatusCode, Json<ErrorResponse>) {
+    let status = match e.kind() {
+        std::io::ErrorKind::InvalidInput => StatusCode::BAD_REQUEST,
+        std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+        std::io::ErrorKind::AlreadyExists => StatusCode::CONFLICT,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (status, Json(ErrorResponse { error: format!("Failed to {action} idea: {e}") }))
 }
 
 async fn get_ideas(State(state): State<AppState>) -> Json<IdeasResponse> {
@@ -262,12 +263,7 @@ async fn create_idea(
         &req.description,
         None
     )
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to save idea: {}", e),
-            }),
-        ))?;
+        .map_err(|e| idea_error("save", e))?;
 
     let _ = state.update_tx.send(());
 
@@ -303,12 +299,7 @@ async fn delete_idea(
         ))?;
 
     parser::delete_idea(&source.path, idea_id)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to delete idea: {}", e),
-            }),
-        ))?;
+        .map_err(|e| idea_error("delete", e))?;
 
     let _ = state.update_tx.send(());
 
@@ -345,12 +336,7 @@ async fn update_idea(
         ))?;
 
     let idea = parser::update_idea(&source.path, &source.id, idea_id, &req.title, &req.description)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to update idea: {}", e),
-            }),
-        ))?;
+        .map_err(|e| idea_error("update", e))?;
 
     let _ = state.update_tx.send(());
 

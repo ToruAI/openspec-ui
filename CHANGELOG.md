@@ -35,6 +35,11 @@ A relaunch: start it with one command in any folder, a board that uses OpenSpec'
 - 0.2.0 said its artifact vocabulary and dependency graph matched `openspec status`. They did not: the CLI says `done` where we said `complete`, orders the chain proposal, specs, design, tasks, and has a `skipped` state. The conformance checks above exist so that claim is now tested rather than asserted.
 - Live updates no longer blink the board, and an open change detail follows them.
 
+### Security
+- **Any file on the machine could be read through the spec API** (0.1.0 and 0.2.0, which also listened on every network interface by default, so anyone on the same network could do it). A spec name with `..` or an absolute path (`GET /api/specs/<repo>%2F%2Fetc%2Fpasswd`) returned that file. Spec names are now checked, and the file must resolve to a `.md` inside the repo's `openspec/specs/` folder or directly in `openspec/`.
+- **Deleting or editing an idea could delete or overwrite a `.md` file elsewhere on disk** (0.1.0 and 0.2.0). The idea id went into the file path unchecked, through the API and through the UI itself: a cloned repo with an idea whose frontmatter said `id: ../../../x` made the Delete button remove `x.md` outside the repo. An idea's id is now its file name (letters, digits, `-`, `_`, `.`; no leading dot), checked on every create, edit and delete; symlinked idea files and an `ideas/` folder pointing out of the repo are refused.
+- **Symlinks in a repo could show files from outside it** (0.1.0 and 0.2.0 for `proposal.md` and the other fixed files; a symlink to `/` also made every board refresh walk the whole disk before this release). A file or folder that resolves outside the source's `openspec/` directory now counts as absent, for the board and for the change detail alike. Symlinks that stay inside it, and a source path that is itself a symlink, work as before.
+
 ## [0.2.0] - 2026-07-27
 
 ### Fixed
