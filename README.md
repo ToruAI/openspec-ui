@@ -16,7 +16,7 @@
 npx openspec-ui
 ```
 
-Run it in a repo, or in a folder that holds several. It finds every `openspec/` directory, opens the board in your browser, and updates as files change. **[Try the live demo](https://toruai.github.io/openspec-ui/)** with sample data, nothing to install.
+Run it in a repo, or in a folder that holds several. It finds every `openspec/` directory, opens the board in your browser (when started from a terminal), and updates as files change. **[Try the live demo](https://toruai.github.io/openspec-ui/)** with sample data, nothing to install.
 
 ## What you see
 
@@ -42,11 +42,15 @@ Run it in a repo, or in a folder that holds several. It finds every `openspec/` 
 | How | Command |
 |---|---|
 | **npx** (macOS, Linux, Windows) | `npx openspec-ui` |
-| **Install script** (macOS, Linux) | `curl -fsSL https://github.com/ToruAI/openspec-ui/releases/latest/download/install.sh \| sh` |
+| **Install script** (macOS, Linux) | see below |
 | **Docker** | `docker run -p 3000:3000 -v ~/code:/repos ghcr.io/toruai/openspec-ui` |
 | **Download** | [Releases](https://github.com/ToruAI/openspec-ui/releases/latest): `.zip` for macOS (Apple Silicon, Intel), Linux (x86_64, arm64, static), Windows (x86_64) |
 
-The install script puts `openspec-ui` in `~/.local/bin`, verifies it against `SHA256SUMS`, and needs no sudo; re-run it to update. The Docker image finds repos mounted under `/repos`; see [Docker notes](docs/reference.md#docker).
+```sh
+curl -fsSL https://github.com/ToruAI/openspec-ui/releases/latest/download/install.sh | sh
+```
+
+The install script puts `openspec-ui` in `~/.local/bin` (set `OPENSPEC_UI_INSTALL_DIR` to change that), verifies it against `SHA256SUMS`, and needs no sudo; re-run it to update. The Docker image finds repos mounted under `/repos`; see [Docker notes](docs/reference.md#docker).
 
 ### Build from source
 
@@ -69,7 +73,7 @@ openspec-ui --host 0.0.0.0   # reachable from your phone on the same network
 openspec-ui --json           # one JSON line with the URL, for scripts and agents
 ```
 
-It takes port 3000, or the next free one. Starting it again for the same folders reuses the running server instead of starting a second one. `openspec-ui --help` lists every option.
+It takes port 3000, or the next free one. Starting it again for the same folders reuses the running server instead of starting a second one. With `--json` it prints that one line and keeps serving, so scripts should start it in the background; `GET /api/info` returns the same JSON, and `GET /api/changes` the board's data. `openspec-ui --help` lists every option.
 
 **On your phone.** The board listens on localhost only. Start it with `--host 0.0.0.0` and press the phone button in the header: it shows the address to open on a phone on the same network.
 
