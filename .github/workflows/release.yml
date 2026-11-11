@@ -158,20 +158,21 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
 
-      - name: Install musl tools
-        if: endsWith(matrix.target, '-musl')
-        # The runners' apt mirrors fail to resolve now and then; retry before giving up.
-        run: |
-          for attempt in 1 2 3 4; do
-            if sudo apt-get update && sudo apt-get install -y musl-tools; then exit 0; fi
-            echo "apt failed (attempt $attempt), retrying in 20 s"
-            sleep 20
-          done
-          exit 1
-
       - name: Build binary
+        if: ${{ !endsWith(matrix.target, '-musl') }}
         working-directory: backend
         run: cargo build --release --target ${{ matrix.target }}
+
+      # Static musl builds run inside the official Rust Alpine image: the same
+      # recipe as the Dockerfile, and no dependency on the runner's apt mirrors.
+      - name: Build binary (musl, in Alpine)
+        if: endsWith(matrix.target, '-musl')
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          docker run --rm -v "$PWD":/src -w /src/backend -e TARGET rust:1-alpine \
+            sh -c 'apk add --no-cache musl-dev && cargo build --release --target "$TARGET"'
+          sudo chown -R "$(id -u):$(id -g)" backend/target
 
       - name: Smoke test (starts, serves health and the embedded UI)
         if: matrix.smoke
