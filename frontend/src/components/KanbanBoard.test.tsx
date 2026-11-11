@@ -17,11 +17,15 @@ describe('KanbanBoard', () => {
       hasDesign: false,
       schema: 'spec-driven',
       artifacts: [
-        { id: 'proposal', state: 'complete', missingDeps: [] },
-        { id: 'design', state: 'ready', missingDeps: [] },
-        { id: 'specs', state: 'complete', missingDeps: [] },
-        { id: 'tasks', state: 'complete', missingDeps: [] },
+        { id: 'proposal', outputPath: 'proposal.md', status: 'done', requires: [], missingDeps: [] },
+        { id: 'specs', outputPath: 'specs/**/*.md', status: 'done', requires: ['proposal'], missingDeps: [] },
+        { id: 'design', outputPath: 'design.md', status: 'ready', requires: ['proposal'], missingDeps: [] },
+        { id: 'tasks', outputPath: 'tasks.md', status: 'done', requires: ['specs', 'design'], missingDeps: [] },
       ],
+      isPlanningComplete: false,
+      applyRequires: ['tasks'],
+      error: null,
+      warnings: [],
     },
   ];
 

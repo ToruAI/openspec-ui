@@ -1,55 +1,19 @@
-import type { Change, Artifact } from '../types';
+import type { Change } from '../types';
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Layers, CheckSquare, Palette } from 'lucide-react';
 import { cn } from "@/lib/utils";
+import { changeArtifacts } from "@/lib/artifacts";
+import { ArtifactChain } from './ArtifactChain';
 
 interface ChangeCardProps {
   change: Change;
   onClick: () => void;
 }
 
-const ARTIFACTS: { id: string; label: string; Icon: typeof FileText; tone: string }[] = [
-  { id: 'proposal', label: 'Proposal', Icon: FileText, tone: 'bg-blue-500/10 text-blue-500 dark:text-blue-400' },
-  { id: 'design', label: 'Design', Icon: Palette, tone: 'bg-purple-500/10 text-purple-500 dark:text-purple-400' },
-  { id: 'specs', label: 'Specs', Icon: Layers, tone: 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-400' },
-  { id: 'tasks', label: 'Tasks', Icon: CheckSquare, tone: 'bg-amber-500/10 text-amber-500 dark:text-amber-400' },
-];
-
-/** Fall back to the boolean flags when a source is served by an older backend. */
-function artifactStates(change: Change): Record<string, Artifact> {
-  const states: Record<string, Artifact> = {};
-
-  if (change.artifacts?.length) {
-    for (const artifact of change.artifacts) states[artifact.id] = artifact;
-    return states;
-  }
-
-  const present: Record<string, boolean> = {
-    proposal: change.hasProposal,
-    design: change.hasDesign,
-    specs: change.hasSpecs,
-    tasks: change.hasTasks,
-  };
-  for (const { id } of ARTIFACTS) {
-    states[id] = { id, state: present[id] ? 'complete' : 'blocked', missingDeps: [] };
-  }
-  return states;
-}
-
-function artifactTitle(artifact: Artifact): string {
-  if (artifact.state === 'complete') return 'Written';
-  if (artifact.state === 'ready') return 'Ready to write — nothing blocking it';
-  return artifact.missingDeps.length > 0
-    ? `Waiting for ${artifact.missingDeps.join(' and ')}`
-    : 'Not written yet';
-}
-
 export function ChangeCard({ change, onClick }: ChangeCardProps) {
   const taskStats = change.taskStats;
   const progress = taskStats && taskStats.total > 0 ? (taskStats.done / taskStats.total) * 100 : 0;
   const isComplete = progress === 100;
-  const states = artifactStates(change);
 
   return (
     <Card
@@ -102,34 +66,12 @@ export function ChangeCard({ change, onClick }: ChangeCardProps) {
           </div>
         )}
 
-        {/* Artifact chain: written, ready to write, or waiting on another artifact */}
-        <div className="flex gap-2 flex-wrap items-center">
-          {ARTIFACTS.map(({ id, label, Icon, tone }) => {
-            const artifact = states[id];
-            if (!artifact) return null;
-            const isWritten = artifact.state === 'complete';
-            const isReady = artifact.state === 'ready';
-
-            return (
-              <div
-                key={id}
-                title={artifactTitle(artifact)}
-                className={cn(
-                  "flex items-center gap-1.5 px-2 py-1 rounded-md transition-opacity",
-                  isWritten
-                    ? tone
-                    : isReady
-                      ? "bg-foreground/5 text-foreground/70 ring-1 ring-inset ring-foreground/15"
-                      : "bg-muted/50 text-muted-foreground/50"
-                )}
-              >
-                <Icon className="h-3 w-3" />
-                <span className="text-[10px] font-medium">{label}</span>
-                {isReady && <span className="text-[9px] font-normal opacity-70">next</span>}
-              </div>
-            );
-          })}
-        </div>
+        {/* Artifact chain from the change's workflow schema */}
+        <ArtifactChain
+          artifacts={changeArtifacts(change)}
+          error={change.error}
+          warnings={change.warnings}
+        />
       </CardContent>
     </Card>
   );
