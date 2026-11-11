@@ -1,0 +1,7 @@
+schema: spec-driven
+
+context: |
+  Fernhill Goods sells houseplants and ceramics in the EU. This is the customer-facing web storefront.
+  Next.js (App Router) with TypeScript; product data in Postgres, payments delegated to payments-api.
+  Prices are stored in cents and rendered in EUR. Every user-facing string goes through the i18n catalog.
+  Pages must stay within the performance budget: LCP under 2.5 s on a mid-range phone over 4G.

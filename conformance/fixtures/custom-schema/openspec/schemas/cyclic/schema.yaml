@@ -1,0 +1,13 @@
+name: cyclic
+version: 1
+artifacts:
+  - id: a
+    generates: a.md
+    description: A
+    template: a.md
+    requires: [b]
+  - id: b
+    generates: b.md
+    description: B
+    template: b.md
+    requires: [a]

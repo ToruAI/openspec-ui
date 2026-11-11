@@ -1,0 +1,48 @@
+name: Bug report
+description: Something on the board is wrong, missing, or does not start
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: If a change shows the wrong stage or chain, paste what `openspec status --change <name> --json` says for it.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. openspec-ui ~/code
+        2. ...
+  - type: input
+    id: version
+    attributes:
+      label: openspec-ui version
+      description: "`openspec-ui --version`, or the badge in the header"
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: openspec
+    attributes:
+      label: OpenSpec version
+      description: "`openspec --version` in the affected repo, if installed"
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run it?
+      options:
+        - npx
+        - install.sh
+        - Release archive
+        - Docker
+        - Built from source
+  - type: input
+    id: os
+    attributes:
+      label: OS and browser
+      placeholder: "macOS 15, Safari 18"
+    validations:
+      required: true

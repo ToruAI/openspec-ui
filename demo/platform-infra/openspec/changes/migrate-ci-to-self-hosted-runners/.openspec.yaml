@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-19
+goal: Cut CI minutes spend by about 60% and make builds faster with warm caches.
+skip_specs: true

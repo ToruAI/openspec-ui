@@ -1,0 +1,7 @@
+schema: spec-driven
+
+context: |
+  platform-infra holds the Terraform, Helm charts and CI configuration shared by storefront, payments-api and mobile-app.
+  Runs on a managed Kubernetes cluster in one EU region plus a managed Postgres service; everything is declared as code and applied from CI.
+  Changes to production infrastructure need a plan reviewed by a second engineer and a rollback note in the change.
+  Specs here describe operational guarantees (recovery objectives, alert routing, retention), not individual resources.

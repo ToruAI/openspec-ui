@@ -1,0 +1,93 @@
+name: OpenSpec conformance
+
+# Regenerates the conformance fixtures with the newest OpenSpec release and
+# checks that openspec-ui reads them exactly as the OpenSpec CLI does. A
+# failure on the weekly run means a new OpenSpec release changed behaviour
+# the board depends on. Plain `cargo test` (ci.yml) checks the committed
+# fixtures; this workflow checks against whatever OpenSpec ships today.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      openspec_version:
+        description: "OpenSpec npm version to test against"
+        required: false
+        default: latest
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    env:
+      OPENSPEC_VERSION: ${{ inputs.openspec_version || 'latest' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-11-11
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: backend
+
+      # The binary embeds frontend/dist; the conformance test only needs it to exist.
+      - name: Stub frontend build
+        run: mkdir -p frontend/dist && echo '<!doctype html>' > frontend/dist/index.html
+
+      - name: Regenerate fixtures with OpenSpec ${{ env.OPENSPEC_VERSION }}
+        run: node conformance/generate.mjs --version "$OPENSPEC_VERSION"
+
+      - name: Report what the new fixtures change
+        run: |
+          version=$(node -p "require('./conformance/fixtures/manifest.json').openspecVersion")
+          echo "OPENSPEC_RESOLVED=$version" >> "$GITHUB_ENV"
+          {
+            echo "## OpenSpec conformance"
+            echo
+            echo "Fixtures regenerated with **OpenSpec $version** (requested: \`$OPENSPEC_VERSION\`)."
+            echo
+            if [ -z "$(git status --porcelain conformance/fixtures)" ]; then
+              echo "The CLI's answers are identical to the committed fixtures."
+            else
+              echo "The CLI's answers differ from the committed fixtures:"
+              echo
+              echo '```diff'
+              git diff --no-color -- conformance/fixtures | head -n 300
+              git status --porcelain conformance/fixtures | grep '^??' || true
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare openspec-ui with the OpenSpec CLI
+        working-directory: backend
+        run: cargo test conformance -- --nocapture
+
+      - name: Record result
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "openspec-ui agrees with OpenSpec $OPENSPEC_RESOLVED on every recorded check." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**openspec-ui disagrees with OpenSpec $OPENSPEC_RESOLVED.** See the test output above for each fixture, field, and both answers. Download the regenerated fixtures from this run's artifacts to reproduce locally with OPENSPEC_UI_CONFORMANCE_DIR." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload regenerated fixtures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-fixtures-openspec-${{ env.OPENSPEC_RESOLVED }}
+          path: conformance/fixtures
+          # .openspec.yaml markers and .gitkeep files are part of the fixtures.
+          include-hidden-files: true

@@ -1,27 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { fetchJson } from '../lib/transport';
 import type { Source, Change, ChangeDetail, Spec, SpecDetail, Idea } from '../types';
 
 const API_BASE = '/api';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
-
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    const text = await res.text();
-    try {
-        const json = JSON.parse(text);
-        if (json.error) throw new Error(json.error);
-    } catch {
-        // If not JSON or no error field, throw status text
-    }
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
-  
-  // Handle empty responses
-  const text = await res.text();
-  return text ? JSON.parse(text) : {} as T;
-}
 
 export function useSources() {
   const [sources, setSources] = useState<Source[]>([]);
@@ -213,6 +196,9 @@ export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStat
   }, [onUpdate]);
 
   useEffect(() => {
+    // The static demo has no server to push updates.
+    if (__DEMO__) return;
+
     const eventSource = new EventSource(`${API_BASE}/events`);
 
     eventSource.addEventListener('open', () => {
@@ -248,7 +234,51 @@ export interface SourceConfig {
 
 export interface ConfigResponse {
   sources: SourceConfig[];
+  /** Port the server listens on */
   port: number;
+  /** 'file': edits are saved to configPath. 'discovered': found by scanning roots, edits are session-only. */
+  mode?: 'file' | 'discovered';
+  configPath?: string | null;
+  roots?: string[];
+  persistent?: boolean;
+  /** False when this browser is not on the machine running openspec-ui: sources are read-only then. Missing (older servers, demo) means editable. */
+  sourcesEditable?: boolean;
+}
+
+/** What the running server reports about itself (GET /api/info). */
+export interface ServerInfo {
+  name: string;
+  version: string;
+  url: string;
+  port: number;
+  mode: 'file' | 'discovered';
+  configPath: string | null;
+  roots: string[];
+  changelog: string;
+  /** Address the server is bound to, e.g. 127.0.0.1 or 0.0.0.0 */
+  host?: string;
+  /** Address a phone on the same network can open; set only with --host 0.0.0.0 */
+  lanUrl?: string | null;
+}
+
+export function useServerInfo() {
+  const [info, setInfo] = useState<ServerInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchJson<ServerInfo>(`${API_BASE}/info`)
+      .then((data) => {
+        if (!cancelled) setInfo(data);
+      })
+      .catch(() => {
+        // Older servers have no /api/info; the UI works without it.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return info;
 }
 
 export interface ErrorResponse {

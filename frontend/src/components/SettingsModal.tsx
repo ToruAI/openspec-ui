@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, AlertCircle, FolderOpen, Loader2, Check } from 'lucide-react';
-import { getConfig, updateSources, type SourceConfig } from '../hooks/useApi';
+import { getConfig, updateSources, type ConfigResponse, type SourceConfig } from '../hooks/useApi';
 import { cn } from '@/lib/utils';
+import { IS_DEMO } from '../lib/transport';
 
 interface SettingsModalProps {
   open: boolean;
@@ -19,6 +20,8 @@ interface SettingsModalProps {
 
 export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   const [sources, setSources] = useState<SourceConfig[]>([]);
+  const [storage, setStorage] = useState<Pick<ConfigResponse, 'mode' | 'configPath' | 'roots' | 'sourcesEditable'>>({});
+  const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -47,6 +50,12 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
       setLoading(true);
       const config = await getConfig();
       setSources(config.sources);
+      setStorage({
+        mode: config.mode,
+        configPath: config.configPath,
+        roots: config.roots,
+        sourcesEditable: config.sourcesEditable,
+      });
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load configuration');
@@ -84,6 +93,24 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     }
   }
 
+  // Another device (a phone, or the host's browser reaching a container) may
+  // read the board but not repoint the server at other folders.
+  const remote = !IS_DEMO && storage.sourcesEditable === false;
+  const sessionOnly = storage.mode === 'discovered' && !IS_DEMO && !remote;
+  // The static demo shows sample projects; editing sources would do nothing, so it is disabled.
+  const busy = loading || IS_DEMO || remote;
+  const configJson = JSON.stringify({ sources }, null, 2);
+
+  async function handleCopyConfig() {
+    try {
+      await navigator.clipboard.writeText(configJson);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard is unavailable over plain http on another device; the JSON stays selectable.
+    }
+  }
+
   async function handleRemoveSource(index: number) {
     const updatedSources = sources.filter((_, i) => i !== index);
     setSources(updatedSources);
@@ -103,7 +130,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FolderOpen className="h-5 w-5 text-primary" />
@@ -116,7 +143,31 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             <div>
               <h3 className="text-sm font-semibold leading-none">Sources</h3>
               <p className="text-sm text-muted-foreground mt-1.5">
-                Configure OpenSpec source repositories. Changes are applied immediately.
+                {IS_DEMO ? (
+                  <>
+                    These are the sample projects of this demo. Sources can be added and removed
+                    when you run openspec-ui on your own machine.
+                  </>
+                ) : remote ? (
+                  <>
+                    Sources can be changed only in a browser on the computer openspec-ui runs on
+                    (in Docker: change the folders mounted under <code className="font-mono text-xs">/repos</code>).
+                    Here they are read-only.
+                  </>
+                ) : sessionOnly ? (
+                  <>
+                    Found by searching{' '}
+                    <code className="font-mono text-xs break-all">{(storage.roots ?? []).join(', ')}</code>.
+                    Changes apply right away but last only until openspec-ui stops; nothing is written to disk.
+                  </>
+                ) : storage.configPath ? (
+                  <>
+                    Changes apply right away and are saved to{' '}
+                    <code className="font-mono text-xs break-all">{storage.configPath}</code>.
+                  </>
+                ) : (
+                  <>OpenSpec projects shown on the board. Changes are applied immediately.</>
+                )}
               </p>
             </div>
 
@@ -159,7 +210,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleRemoveSource(i)}
-                        disabled={loading}
+                        disabled={busy}
                         className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 rounded-lg shrink-0"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -183,56 +234,76 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             </div>
 
             {/* Add new source form */}
-            <div className="grid gap-4 p-4 border border-border/50 rounded-xl bg-muted/30">
-              <div className="text-sm font-medium flex items-center gap-2">
-                <Plus className="h-4 w-4 text-primary" />
-                Add New Source
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name" className="text-xs">Name</Label>
-                  <Input
-                    id="name"
-                    placeholder="e.g. brain-gate"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    disabled={loading}
-                    className="h-9 bg-background/50"
-                  />
+            {!remote && (
+              <div className="grid gap-4 p-4 border border-border/50 rounded-xl bg-muted/30">
+                <div className="text-sm font-medium flex items-center gap-2">
+                  <Plus className="h-4 w-4 text-primary" />
+                  Add New Source
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="path" className="text-xs">Path</Label>
-                  <Input
-                    id="path"
-                    placeholder="/path/to/repo/openspec"
-                    value={newPath}
-                    onChange={(e) => setNewPath(e.target.value)}
-                    disabled={loading}
-                    className="h-9 bg-background/50 font-mono text-sm"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name" className="text-xs">Name</Label>
+                    <Input
+                      id="name"
+                      placeholder="e.g. brain-gate"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      disabled={busy}
+                      className="h-9 bg-background/50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="path" className="text-xs">Path</Label>
+                    <Input
+                      id="path"
+                      placeholder="/path/to/repo"
+                      value={newPath}
+                      onChange={(e) => setNewPath(e.target.value)}
+                      disabled={busy}
+                      className="h-9 bg-background/50 font-mono text-sm"
+                    />
+                  </div>
                 </div>
+                <Button 
+                  onClick={handleAddSource} 
+                  disabled={!newName || !newPath || busy}
+                  className={cn(
+                    "w-full sm:w-auto sm:ml-auto transition-all",
+                    loading && "opacity-70"
+                  )}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Source
+                    </>
+                  )}
+                </Button>
               </div>
-              <Button 
-                onClick={handleAddSource} 
-                disabled={!newName || !newPath || loading}
-                className={cn(
-                  "w-full sm:w-auto sm:ml-auto transition-all",
-                  loading && "opacity-70"
-                )}
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Source
-                  </>
-                )}
-              </Button>
-            </div>
+            )}
+
+            {sessionOnly && sources.length > 0 && (
+              <details className="group rounded-xl border border-border/50 p-4 text-sm">
+                <summary className="cursor-pointer font-medium">Keep this list</summary>
+                <p className="text-muted-foreground mt-2">
+                  Save it as <code className="font-mono text-xs">openspec-ui.json</code> in the folder you
+                  start openspec-ui from (it is picked up automatically), or anywhere and start with{' '}
+                  <code className="font-mono text-xs">openspec-ui --config FILE</code>.
+                </p>
+                <pre className="mt-3 max-h-48 overflow-auto rounded-lg bg-muted/50 p-3 font-mono text-xs select-all">
+                  {configJson}
+                </pre>
+                <Button variant="outline" size="sm" className="mt-3" onClick={handleCopyConfig}>
+                  {copied ? <Check className="mr-2 h-4 w-4" /> : null}
+                  {copied ? 'Copied' : 'Copy JSON'}
+                </Button>
+              </details>
+            )}
           </div>
         </div>
       </DialogContent>

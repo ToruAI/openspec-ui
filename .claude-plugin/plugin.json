@@ -1,0 +1,9 @@
+{
+  "name": "openspec-ui",
+  "description": "Start the OpenSpec board (openspec-ui) from your agent and answer status questions across your repos.",
+  "author": { "name": "ToruAI" },
+  "homepage": "https://github.com/ToruAI/openspec-ui",
+  "repository": "https://github.com/ToruAI/openspec-ui",
+  "license": "MIT",
+  "keywords": ["openspec", "kanban", "dashboard", "spec-driven"]
+}

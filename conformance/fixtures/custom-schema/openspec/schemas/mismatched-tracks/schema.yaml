@@ -1,0 +1,10 @@
+name: mismatched-tracks
+version: 1
+artifacts:
+  - id: work
+    generates: "work/*.md"
+    description: Work
+    template: x.md
+apply:
+  requires: [work]
+  tracks: tasks.md

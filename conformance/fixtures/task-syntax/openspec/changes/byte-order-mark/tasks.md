@@ -1,0 +1,2 @@
+﻿- [ ] first line behind a BOM
+- [x] second

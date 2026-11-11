@@ -1,91 +1,72 @@
-# Multi-stage Dockerfile for OpenSpec UI
-# Stage 1: Node builder - Build frontend
-FROM node:20-alpine AS frontend-builder
+# OpenSpec UI container image.
+#
+# Default target (`docker build .`): builds everything from source. The binary
+# is built for musl so the same small Alpine runtime serves both paths.
+#
+# Target `prebuilt` (used by the release workflow): copies the already-built,
+# already-tested musl release binaries instead of compiling under QEMU:
+#   docker buildx build --target prebuilt --platform linux/amd64,linux/arm64 \
+#     --build-context bins=<dir containing amd64/openspec-ui and arm64/openspec-ui> .
+#
+# Run (this computer only):
+#   docker run -p 127.0.0.1:3000:3000 -v ~/code:/repos ghcr.io/toruai/openspec-ui
+# Also from your phone or other devices on the network (open it by IP address;
+# a name such as my-pc.local or a reverse proxy name must be allowed):
+#   docker run -p 3000:3000 -e OPENSPEC_UI_ALLOWED_HOSTS=my-pc.local \
+#     -v ~/code:/repos ghcr.io/toruai/openspec-ui
+# Repos mounted under /repos are found automatically. For a fixed list, mount a
+# config as /repos/openspec-ui.json or point OPENSPEC_UI_CONFIG at one. The
+# source list is read-only in the browser here (requests reach the container
+# through Docker's network, not from this machine); change the mounts instead.
+# The board has no login: anyone who can reach the published port can read
+# the mounted repos' OpenSpec files and edit their ideas.
 
+# --- Stage 1: frontend -------------------------------------------------------
+FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
-
-# Copy frontend package files
 COPY frontend/package*.json ./
-
-# Install dependencies
 RUN npm ci
-
-# Copy frontend source
 COPY frontend/ ./
-
-# Build frontend
 RUN npm run build
 
-# Stage 2: Rust builder - Build backend
-FROM rust:1.82-slim AS backend-builder
-
+# --- Stage 2: backend (musl) --------------------------------------------------
+FROM rust:1-alpine AS backend-builder
+RUN apk add --no-cache musl-dev
 WORKDIR /app
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy Cargo files
-COPY backend/Cargo.toml backend/Cargo.lock ./backend/
-
-# Create a dummy main.rs to cache dependencies
-RUN mkdir -p backend/src && \
-    echo "fn main() {}" > backend/src/main.rs
-
-# Build dependencies
+# build.rs stamps the binary with the repo-wide VERSION.
+COPY VERSION ./VERSION
+COPY backend/Cargo.toml backend/Cargo.lock backend/build.rs ./backend/
 WORKDIR /app/backend
-RUN cargo build --release && \
-    rm -rf src
-
-# Copy actual backend source
+# Cache dependencies with a dummy main.
+RUN mkdir -p src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src
 COPY backend/src ./src
-
-# Copy frontend assets for embedding
+# The frontend is embedded into the binary at compile time (rust-embed).
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+RUN touch src/main.rs && cargo build --release
 
-# Build backend
-RUN touch src/main.rs && \
-    cargo build --release
-
-# Stage 3: Runtime - Copy artifacts and run
-FROM debian:bookworm-slim AS runtime
-
-WORKDIR /app
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user
-RUN useradd -m -u 1000 openspec
-
-# Copy backend binary from builder
-COPY --from=backend-builder /app/backend/target/release/openspec-ui /app/openspec-ui
-
-# Copy config file
-COPY openspec-ui.json /app/openspec-ui.json
-
-# Copy frontend assets from builder
-COPY --from=frontend-builder /app/frontend/dist /app/dist
-
-# Set ownership
-RUN chown -R openspec:openspec /app
-
-# Switch to non-root user
-USER openspec
-
-# Set environment variables
-ENV PORT=3000
-
-# Expose port
+# --- Shared runtime base ------------------------------------------------------
+FROM alpine:3.21 AS runtime-base
+LABEL org.opencontainers.image.source="https://github.com/ToruAI/openspec-ui" \
+      org.opencontainers.image.description="Read-only dashboard for OpenSpec changes and specs" \
+      org.opencontainers.image.licenses="MIT"
+# Numeric uid, no RUN: keeps multi-arch builds free of emulated steps.
+WORKDIR /repos
+USER 10001:10001
+# Listen on all interfaces inside the container (the host decides what to
+# publish with -p), on a fixed port, and never try to open a browser.
+ENV OPENSPEC_UI_HOST=0.0.0.0 \
+    PORT=3000 \
+    OPENSPEC_UI_NO_OPEN=1
 EXPOSE 3000
-
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1
+ENTRYPOINT ["/app/openspec-ui"]
 
-# Run the application
-CMD ["/app/openspec-ui"]
+# --- Release image: prebuilt binaries ----------------------------------------
+FROM runtime-base AS prebuilt
+ARG TARGETARCH
+COPY --from=bins --chmod=755 ${TARGETARCH}/openspec-ui /app/openspec-ui
+
+# --- Default image: built from source (last stage = default target) ----------
+FROM runtime-base AS runtime
+COPY --from=backend-builder --chmod=755 /app/backend/target/release/openspec-ui /app/openspec-ui

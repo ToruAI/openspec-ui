@@ -1,0 +1,3 @@
+# Conformance fixtures are byte-exact recordings: CRLF line endings and BOMs
+# in task files are part of what is being tested.
+conformance/fixtures/** -text

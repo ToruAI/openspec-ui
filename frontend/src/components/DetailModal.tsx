@@ -1,253 +1,298 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { X, FileText, Layers, CheckSquare, Palette, Loader2 } from 'lucide-react';
+import { X, FileText, Loader2, AlertTriangle } from 'lucide-react';
 import { useChange } from '../hooks/useApi';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import type { Change } from '../types';
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import type { Artifact, Change, ChangeDetail, SpecContent } from '../types';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
+import { ARTIFACT_STATUS, artifactMeta, changeArtifacts, joinWords, nextArtifactId } from '@/lib/artifacts';
+import { STAGES, splitArchivedName, stageOf } from '@/lib/board';
+import { TasksDocument } from './TasksDocument';
 
 interface DetailModalProps {
   change: Change | null;
   onClose: () => void;
+  /** Repo label, when the board mixes repos */
+  repo?: { name: string; color: string } | null;
 }
 
-type Tab = 'proposal' | 'specs' | 'tasks' | 'design';
+const prose =
+  'prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm break-words';
 
-const TAB_CONFIG: Record<Tab, { icon: React.ReactNode; label: string; color: string }> = {
-  proposal: { 
-    icon: <FileText className="h-4 w-4" />, 
-    label: 'Proposal',
-    color: 'text-blue-500'
-  },
-  specs: { 
-    icon: <Layers className="h-4 w-4" />, 
-    label: 'Specs',
-    color: 'text-emerald-500'
-  },
-  tasks: { 
-    icon: <CheckSquare className="h-4 w-4" />, 
-    label: 'Tasks',
-    color: 'text-amber-500'
-  },
-  design: { 
-    icon: <Palette className="h-4 w-4" />, 
-    label: 'Design',
-    color: 'text-purple-500'
-  },
-};
+function Centered({ children }: { children: React.ReactNode }) {
+  return <div className="flex flex-col items-center justify-center py-16 gap-3 text-center text-sm text-muted-foreground">{children}</div>;
+}
 
-const STATUS_STYLES: Record<string, string> = {
-  draft: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
-  todo: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
-  in_progress: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
-  done: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
-  archived: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
-};
+/** Files written for one artifact: what the backend lists, else the older fixed fields. */
+function filesFor(detail: ChangeDetail, artifactId: string): SpecContent[] {
+  const doc = detail.documents?.find((d) => d.artifactId === artifactId);
+  if (doc) return doc.files;
+  switch (artifactId) {
+    case 'proposal':
+      return detail.proposal ? [{ path: 'proposal.md', content: detail.proposal }] : [];
+    case 'design':
+      return detail.design ? [{ path: 'design.md', content: detail.design }] : [];
+    case 'tasks':
+      return detail.tasks ? [{ path: 'tasks.md', content: detail.tasks.raw }] : [];
+    case 'specs':
+      return detail.specs.map((s) => ({ path: `specs/${s.path}`, content: s.content }));
+    default:
+      return [];
+  }
+}
 
-export function DetailModal({ change, onClose }: DetailModalProps) {
-  const { change: detail, loading } = useChange(change?.id || null);
-  const [activeTab, setActiveTab] = useState<Tab>('proposal');
+function Documents({ files, isTasks }: { files: SpecContent[]; isTasks: boolean }) {
+  return (
+    <div className="space-y-8">
+      {files.map((file) => (
+        <section key={file.path}>
+          {files.length > 1 && (
+            <h3 className="mb-3 flex items-center gap-2 border-b border-border/70 pb-2 font-mono text-xs font-medium text-muted-foreground">
+              <FileText className="h-3.5 w-3.5" aria-hidden />
+              {file.path}
+            </h3>
+          )}
+          {isTasks ? (
+            <TasksDocument content={file.content} />
+          ) : (
+            <article className={prose}>
+              <ReactMarkdown>{file.content}</ReactMarkdown>
+            </article>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** What an artifact without files is waiting for, in `openspec status` terms. */
+function NotWritten({ artifact, isNext }: { artifact: Artifact; isNext: boolean }) {
+  const { label } = artifactMeta(artifact.id);
+  const { Icon } = ARTIFACT_STATUS[artifact.status];
+  let text: React.ReactNode;
+  if (artifact.status === 'skipped') {
+    text = (
+      <>
+        Skipped. This change sets <code className="font-mono text-xs">skip_specs: true</code>, so it changes no specs.
+      </>
+    );
+  } else if (artifact.status === 'ready') {
+    text = (
+      <>
+        Not written yet, and nothing blocks it{isNext ? ': this is the next artifact to write' : ''}. It goes in{' '}
+        <code className="font-mono text-xs">{artifact.outputPath}</code>.
+      </>
+    );
+  } else if (artifact.status === 'blocked') {
+    text =
+      artifact.missingDeps.length > 0 ? (
+        <>Not written yet. It waits for {joinWords(artifact.missingDeps.map((d) => artifactMeta(d).label.toLowerCase()))}.</>
+      ) : (
+        <>Not written yet.</>
+      );
+  } else {
+    text = <>Marked as written, but no files were found at {artifact.outputPath}.</>;
+  }
+  return (
+    <Centered>
+      <div className="w-12 h-12 rounded-xl bg-muted/60 flex items-center justify-center">
+        <Icon className="h-5 w-5" aria-hidden />
+      </div>
+      <div className="font-medium text-foreground">{label}</div>
+      <p className="max-w-sm">{text}</p>
+    </Centered>
+  );
+}
+
+export function DetailModal({ change, onClose, repo }: DetailModalProps) {
+  const { change: detail, loading, refetch } = useChange(change?.id || null);
+  const [activeTab, setActiveTab] = useState<string>('proposal');
   const isMobile = useIsMobile();
 
+  // The list refreshes on every file change; when it hands us a new copy of
+  // this change, reload the documents too so the tabs match the header.
+  const seen = useRef(change);
   useEffect(() => {
-    if (change) {
-      setActiveTab(
-        change.hasProposal ? 'proposal' :
-        change.hasSpecs ? 'specs' :
-        change.hasTasks ? 'tasks' :
-        change.hasDesign ? 'design' :
-        'proposal'
-      );
-    }
-  }, [change]);
+    if (seen.current === change) return;
+    seen.current = change;
+    refetch();
+  }, [change, refetch]);
 
   if (!change) return null;
 
-  const availableTabs: Tab[] = [];
-  if (change.hasProposal) availableTabs.push('proposal');
-  if (change.hasSpecs) availableTabs.push('specs');
-  if (change.hasTasks) availableTabs.push('tasks');
-  if (change.hasDesign) availableTabs.push('design');
+  const stage = stageOf(change);
+  const stageMeta = STAGES[stage];
+  const archived = stage === 'archived' ? splitArchivedName(change.name) : null;
+  const next = nextArtifactId(changeArtifacts(change));
 
-  const LoadingState = () => (
-    <div className="flex flex-col items-center justify-center py-16 gap-3">
-      <Loader2 className="h-8 w-8 text-primary animate-spin" />
-      <div className="text-muted-foreground text-sm">Loading content...</div>
-    </div>
-  );
-
-  const EmptyState = ({ message }: { message: string }) => (
-    <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center">
-        <FileText className="h-8 w-8 text-muted-foreground/40" />
-      </div>
-      <div className="text-muted-foreground">{message}</div>
-    </div>
-  );
+  // One tab per artifact in the schema's chain, written or not. A change
+  // OpenSpec can't read has no chain; show whatever documents it does have.
+  let artifacts = changeArtifacts(change);
+  if (artifacts.length === 0 && detail) {
+    artifacts = ['proposal', 'specs', 'design', 'tasks']
+      .filter((id) => filesFor(detail, id).length > 0)
+      .map((id) => ({ id, outputPath: id, status: 'done' as const, requires: [], missingDeps: [] }));
+  }
+  const currentTab = artifacts.some((a) => a.id === activeTab) ? activeTab : (artifacts[0]?.id ?? '');
+  const stats = change.taskStats;
+  const warnings = change.warnings ?? [];
 
   return (
-    <Dialog open={!!change} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={!isMobile}
         className={
           isMobile
-            // Full-screen on mobile
-            ? "fixed inset-0 top-0 left-0 translate-x-0 translate-y-0 w-screen h-screen !max-w-none max-h-none rounded-none border-0 p-0 flex flex-col gap-0"
-            // Better size on desktop
-            : "!w-[85vw] !max-w-[1100px] !h-[85vh] !max-h-[85vh] flex flex-col"
+            ? 'fixed inset-0 top-0 left-0 translate-x-0 translate-y-0 w-screen h-dvh !max-w-none max-h-none rounded-none border-0 p-0 flex flex-col gap-0'
+            : '!w-[85vw] !max-w-[960px] !h-[85vh] !max-h-[85vh] flex flex-col gap-0 p-0'
         }
       >
-        {/* Header */}
-        <DialogHeader className={isMobile ? "p-4 border-b border-border flex-shrink-0 bg-background/95 backdrop-blur-sm" : "flex-shrink-0 px-6"}>
-          <div className={isMobile ? "flex items-center justify-between gap-4" : ""}>
-            <div className={isMobile ? "flex-1 min-w-0" : ""}>
-              <DialogTitle className={cn(
-                "leading-snug",
-                isMobile ? "truncate text-left text-base" : "text-xl"
-              )}>
-                {change.name}
-              </DialogTitle>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <Badge 
-                  variant="secondary" 
-                  className="text-xs font-medium bg-muted/80"
-                >
-                  {change.sourceId}
-                </Badge>
-                <Badge 
-                  variant="outline" 
-                  className={cn(
-                    "text-xs capitalize font-medium",
-                    STATUS_STYLES[change.status]
-                  )}
-                >
-                  {change.status.replace('_', ' ')}
-                </Badge>
-                {change.taskStats && change.taskStats.total > 0 && (
-                  <Badge variant="outline" className="text-xs font-medium">
-                    {change.taskStats.done}/{change.taskStats.total} tasks
-                  </Badge>
+        <DialogHeader className={cn('flex-shrink-0 text-left gap-0 border-b border-border/70', isMobile ? 'px-4 pt-3 pb-3' : 'px-6 pt-5 pb-4')}>
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                {repo && (
+                  <span className="flex items-center gap-1.5">
+                    <span className={cn('h-1.5 w-1.5 rounded-full', repo.color)} aria-hidden />
+                    {repo.name}
+                  </span>
+                )}
+                <span className="flex items-center gap-1" title={stageMeta.hint}>
+                  <stageMeta.Icon className={cn('h-3.5 w-3.5', stageMeta.color)} aria-hidden />
+                  {stageMeta.label}
+                </span>
+                {archived?.date && <span className="tabular-nums">Archived {archived.date}</span>}
+                {change.schema && change.schema !== 'spec-driven' && (
+                  <span title="Workflow schema">
+                    schema <span className="font-mono text-foreground/80">{change.schema}</span>
+                  </span>
+                )}
+                {stats && stats.total > 0 && (
+                  <span className="tabular-nums">
+                    {stats.done}/{stats.total} tasks
+                  </span>
                 )}
               </div>
+              <DialogTitle className={cn('mt-1 font-semibold leading-snug break-words', isMobile ? 'text-base' : 'text-xl')}>
+                {archived ? archived.name : change.name}
+              </DialogTitle>
+              {change.title && <p className="text-sm font-medium text-foreground/80">{change.title}</p>}
+              <DialogDescription className={cn('mt-1 text-sm text-muted-foreground', isMobile && 'line-clamp-3')}>
+                {change.summary || 'No summary yet: the proposal has no Why section and the change no goal.'}
+              </DialogDescription>
+              {stats && stats.total > 0 && (
+                <div className="mt-3 h-1 max-w-sm overflow-hidden rounded-full bg-muted" aria-hidden>
+                  <div
+                    className={cn('h-full rounded-full', stats.done === stats.total ? 'bg-emerald-500' : 'bg-amber-500')}
+                    style={{ width: `${(stats.done / stats.total) * 100}%` }}
+                  />
+                </div>
+              )}
             </div>
             {isMobile && (
               <DialogClose asChild>
-                <Button variant="ghost" size="icon" className="flex-shrink-0 h-9 w-9 rounded-lg">
-                  <X className="h-4 w-4" />
+                <Button variant="ghost" size="icon" className="flex-shrink-0 h-9 w-9 -mr-2" aria-label="Close">
+                  <X className="h-5 w-5" />
                 </Button>
               </DialogClose>
             )}
           </div>
+          {change.error && (
+            <div role="alert" className="mt-3 flex items-start gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden />
+              <div>
+                <span className="font-semibold">OpenSpec can't read this change.</span> {change.error}
+              </div>
+            </div>
+          )}
+          {warnings.length > 0 && (
+            <ul className="mt-3 space-y-1 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+              {warnings.map((w) => (
+                <li key={w} className="flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0" aria-hidden />
+                  <span>
+                    <span className="sr-only">Warning: </span>
+                    {w}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </DialogHeader>
 
-        {/* Content */}
-        <div className={`flex-1 overflow-hidden flex flex-col min-h-0 ${isMobile ? 'px-4' : 'px-6'}`}>
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <TabsList 
-              className="grid w-full flex-shrink-0 bg-muted/50 p-1 h-auto gap-1" 
-              style={{ gridTemplateColumns: `repeat(${availableTabs.length}, 1fr)` }}
+        <Tabs value={currentTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col gap-0">
+          {artifacts.length > 0 && (
+            <TabsList
+              aria-label="Artifacts"
+              className={cn(
+                'h-auto w-full flex-shrink-0 justify-start gap-1 overflow-x-auto rounded-none border-b border-border/70 bg-transparent p-0',
+                isMobile ? 'px-2' : 'px-4'
+              )}
             >
-              {availableTabs.map((tab) => {
-                const config = TAB_CONFIG[tab];
+              {artifacts.map((artifact) => {
+                const { label } = artifactMeta(artifact.id);
+                const status = ARTIFACT_STATUS[artifact.status];
+                const isNext = artifact.id === next;
                 return (
-                  <TabsTrigger 
-                    key={tab}
-                    value={tab} 
+                  <TabsTrigger
+                    key={artifact.id}
+                    value={artifact.id}
+                    data-status={artifact.status}
                     className={cn(
-                      "text-xs md:text-sm py-2 px-3 rounded-md transition-all duration-200",
-                      "data-[state=active]:bg-background data-[state=active]:shadow-sm",
-                      "flex items-center gap-2"
+                      'relative -mb-px h-10 flex-none rounded-none border-0 border-b-2 border-transparent bg-transparent px-3 text-sm shadow-none',
+                      'data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none dark:data-[state=active]:bg-transparent dark:data-[state=active]:border-foreground',
+                      artifact.status === 'done' ? 'text-foreground/80' : 'text-muted-foreground'
                     )}
                   >
-                    <span className={cn(
-                      "transition-colors",
-                      activeTab === tab ? config.color : "text-muted-foreground"
-                    )}>
-                      {config.icon}
-                    </span>
-                    <span className="hidden sm:inline">{config.label}</span>
+                    <status.Icon
+                      className={cn('h-3.5 w-3.5', artifact.status === 'done' && 'text-emerald-600 dark:text-emerald-400', isNext && 'text-primary')}
+                      aria-hidden
+                    />
+                    <span className={cn(artifact.status === 'skipped' && 'line-through')}>{label}</span>
+                    {isNext && <span className="text-[10px] font-semibold text-primary">next</span>}
+                    {!isNext && artifact.status !== 'done' && <span className="sr-only">, {status.label}</span>}
                   </TabsTrigger>
                 );
               })}
             </TabsList>
+          )}
 
-            <div className="flex-1 overflow-y-auto overflow-x-hidden mt-4 scroll-smooth">
-              <div className="pr-2 pb-8 overflow-hidden">
-                {loading ? (
-                  <LoadingState />
-                ) : !detail ? (
-                  <EmptyState message="Failed to load details" />
-                ) : (
-                  <>
-                    <TabsContent value="proposal" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
-                      {detail.proposal ? (
-                        <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm overflow-hidden break-words">
-                          <ReactMarkdown>{detail.proposal}</ReactMarkdown>
-                        </article>
-                      ) : (
-                        <EmptyState message="No proposal document found" />
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="specs" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
-                      {detail.specs.length > 0 ? (
-                        <div className="space-y-8 overflow-hidden">
-                          {detail.specs.map((spec, idx) => (
-                            <div key={idx} className="overflow-hidden">
-                              <div className="flex items-center gap-2 mb-4 min-w-0">
-                                <Layers className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-                                <h3 className="text-sm font-semibold font-mono text-foreground truncate">
-                                  {spec.path}
-                                </h3>
-                              </div>
-                              <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm overflow-hidden break-words">
-                                <ReactMarkdown>{spec.content}</ReactMarkdown>
-                              </article>
-                              {idx < detail.specs.length - 1 && <Separator className="my-8" />}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <EmptyState message="No specs found" />
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="tasks" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
-                      {detail.tasks ? (
-                        <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm prose-li:marker:text-primary overflow-hidden break-words">
-                          <ReactMarkdown>{detail.tasks.raw}</ReactMarkdown>
-                        </article>
-                      ) : (
-                        <EmptyState message="No tasks document found" />
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="design" className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
-                      {detail.design ? (
-                        <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm overflow-hidden break-words">
-                          <ReactMarkdown>{detail.design}</ReactMarkdown>
-                        </article>
-                      ) : (
-                        <EmptyState message="No design document found" />
-                      )}
-                    </TabsContent>
-                  </>
-                )}
-              </div>
-            </div>
-          </Tabs>
-        </div>
+          <div className={cn('min-h-0 flex-1 overflow-y-auto', isMobile ? 'px-4 py-4' : 'px-6 py-5')}>
+            {artifacts.length === 0 ? (
+              loading ? (
+                <Centered>
+                  <Loader2 className="h-6 w-6 animate-spin" aria-hidden />
+                  Loading…
+                </Centered>
+              ) : (
+                <Centered>Nothing written for this change yet.</Centered>
+              )
+            ) : (
+              artifacts.map((artifact) => {
+                const files = detail ? filesFor(detail, artifact.id) : [];
+                return (
+                  <TabsContent key={artifact.id} value={artifact.id} className="mt-0">
+                    {files.length > 0 ? (
+                      <Documents files={files} isTasks={artifact.id === 'tasks' || artifact.outputPath.startsWith('tasks')} />
+                    ) : !detail && loading ? (
+                      <Centered>
+                        <Loader2 className="h-6 w-6 animate-spin" aria-hidden />
+                        Loading…
+                      </Centered>
+                    ) : !detail ? (
+                      <Centered>Couldn't load this change.</Centered>
+                    ) : (
+                      <NotWritten artifact={artifact} isNext={artifact.id === next} />
+                    )}
+                  </TabsContent>
+                );
+              })
+            )}
+          </div>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

@@ -1,28 +1,37 @@
+mod cli;
 mod config;
 mod config_manager;
+mod discovery;
+mod guard;
 mod parser;
+mod startup;
 
 use axum::{
-    extract::{Path, State},
+    extract::{ConnectInfo, Path, Request, State},
     http::{header, StatusCode, Uri},
-    response::{sse::Event, IntoResponse, Json, Sse},
+    middleware::{self, Next},
+    response::{sse::Event, IntoResponse, Json, Response, Sse},
     routing::{delete, get, put},
     Router,
 };
 use clap::Parser as ClapParser;
+use cli::{Args, SourceChoice};
 use config::SourceConfig;
-use config_manager::{AppState, ConfigManager, ConfigResponse};
+use config_manager::{AppState, ConfigManager, ConfigResponse, Mode};
 use futures::stream::{self, Stream};
+use guard::{ClientAddr, Guard};
 use notify::{EventKind, RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer, DebouncedEvent, FileIdMap};
 use parser::{Change, ChangeDetail, Idea, Spec, SpecDetail};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
+use startup::{Bound, Info, InfoSource, Scope};
 use std::{
     convert::Infallible,
     env,
-    net::SocketAddr,
+    io::{IsTerminal, Write},
     path::PathBuf,
+    process::ExitCode,
     sync::Arc,
     time::Duration,
 };
@@ -32,20 +41,11 @@ use tower_http::{
     services::ServeDir,
 };
 use tower_http::cors::AllowOrigin;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[derive(RustEmbed)]
 #[folder = "../frontend/dist"]
 struct Assets;
-
-#[derive(ClapParser, Debug)]
-#[command(name = "openspec-ui")]
-#[command(about = "A read-only dashboard for OpenSpec")]
-struct Args {
-    /// Path to config file
-    #[arg(short, long)]
-    config: Option<PathBuf>,
-}
 
 // AppState is now defined in config_manager module
 
@@ -57,6 +57,9 @@ struct SourceResponse {
     name: String,
     path: String,
     valid: bool,
+    /// Where this source's planning lives (local, store checkout, or a
+    /// pointer to an OpenSpec store elsewhere on the machine).
+    planning: Option<parser::PlanningRoot>,
 }
 
 #[derive(Serialize)]
@@ -119,6 +122,9 @@ async fn get_sources(State(state): State<AppState>) -> Json<SourcesResponse> {
             name: s.name.clone(),
             path: s.path.display().to_string(),
             valid: s.valid,
+            planning: s
+                .valid
+                .then(|| parser::inspect_planning_root(&s.path, &parser::ScanOptions::default())),
         })
         .collect();
     Json(SourcesResponse { sources: response })
@@ -191,20 +197,21 @@ async fn get_spec_detail(
         .find(|s| s.id == source_id && s.valid)
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Try different path formats
-    let spec_paths = [
-        format!("{}/spec.md", spec_name),
-        format!("{}.md", spec_name),
-        spec_name.to_string(),
-    ];
+    parser::get_spec_detail(&source.path, source_id, spec_name)
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
 
-    for spec_path in &spec_paths {
-        if let Some(detail) = parser::get_spec_detail(&source.path, source_id, spec_path) {
-            return Ok(Json(detail));
-        }
-    }
-
-    Err(StatusCode::NOT_FOUND)
+/// Idea file errors as HTTP: a refused id is the client's fault (400), a
+/// missing idea 404, anything else 500.
+fn idea_error(action: &str, e: std::io::Error) -> (StatusCode, Json<ErrorResponse>) {
+    let status = match e.kind() {
+        std::io::ErrorKind::InvalidInput => StatusCode::BAD_REQUEST,
+        std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+        std::io::ErrorKind::AlreadyExists => StatusCode::CONFLICT,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (status, Json(ErrorResponse { error: format!("Failed to {action} idea: {e}") }))
 }
 
 async fn get_ideas(State(state): State<AppState>) -> Json<IdeasResponse> {
@@ -257,12 +264,7 @@ async fn create_idea(
         &req.description,
         None
     )
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to save idea: {}", e),
-            }),
-        ))?;
+        .map_err(|e| idea_error("save", e))?;
 
     let _ = state.update_tx.send(());
 
@@ -298,12 +300,7 @@ async fn delete_idea(
         ))?;
 
     parser::delete_idea(&source.path, idea_id)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to delete idea: {}", e),
-            }),
-        ))?;
+        .map_err(|e| idea_error("delete", e))?;
 
     let _ = state.update_tx.send(());
 
@@ -340,30 +337,46 @@ async fn update_idea(
         ))?;
 
     let idea = parser::update_idea(&source.path, &source.id, idea_id, &req.title, &req.description)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to update idea: {}", e),
-            }),
-        ))?;
+        .map_err(|e| idea_error("update", e))?;
 
     let _ = state.update_tx.send(());
 
     Ok(Json(idea))
 }
 
-async fn get_config(State(state): State<AppState>) -> Result<Json<ConfigResponse>, StatusCode> {
+async fn get_config(
+    State(state): State<AppState>,
+    ConnectInfo(client): ConnectInfo<ClientAddr>,
+) -> Result<Json<ConfigResponse>, StatusCode> {
     let config_manager = state.config_manager().await;
-    config_manager
+    let mut response = config_manager
         .get_config_response()
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    response.sources_editable = may_edit_sources(&client);
+    Ok(Json(response))
 }
+
+/// Only a browser on this machine may change the sources. Inside a container
+/// nobody is: requests arrive through the runtime's port forwarding, whose
+/// source address depends on the runtime, so the answer is fixed instead.
+fn may_edit_sources(client: &ClientAddr) -> bool {
+    client.is_local() && !startup::in_container()
+}
+
+/// Shown when another device tries to change the sources.
+const SOURCES_LOCAL_ONLY: &str = "Sources can be changed only from a browser on the computer openspec-ui runs on. \
+In Docker, change the folders mounted under /repos instead.";
 
 async fn update_sources(
     State(state): State<AppState>,
+    ConnectInfo(client): ConnectInfo<ClientAddr>,
     Json(req): Json<UpdateSourcesRequest>,
 ) -> Result<Json<ConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Repointing the server at other folders lets the caller read them, so
+    // only a client on this machine may do it (a phone may read the board).
+    if !may_edit_sources(&client) {
+        return Err((StatusCode::FORBIDDEN, Json(ErrorResponse { error: SOURCES_LOCAL_ONLY.to_string() })));
+    }
     let config_manager = state.config_manager().await;
 
     // Validate sources - invalid ones are filtered out with warnings
@@ -470,118 +483,137 @@ async fn static_handler(uri: Uri) -> impl IntoResponse {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+// === Server metadata & request guard ===
 
-    let args = Args::parse();
+async fn get_info(State((state, meta)): State<(AppState, Arc<Info>)>) -> Json<Info> {
+    let mut info = (*meta).clone();
+    info.sources = info_sources(&state.get_sources().await);
+    Json(info)
+}
 
-    // Determine config path
-    let config_path = args
-        .config
-        .or_else(|| env::var("OPENSPEC_UI_CONFIG").ok().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("openspec-ui.json"));
+fn info_sources(sources: &[config::Source]) -> Vec<InfoSource> {
+    sources
+        .iter()
+        .map(|s| InfoSource {
+            name: s.name.clone(),
+            path: s.path.display().to_string(),
+            valid: s.valid,
+        })
+        .collect()
+}
 
-    if !config_path.exists() {
-        tracing::error!("Config file not found: {:?}", config_path);
-        std::process::exit(1);
+async fn request_guard(State(guard): State<Arc<Guard>>, req: Request, next: Next) -> Response {
+    match guard.verdict(req.method(), req.headers()) {
+        Some(reason) => (
+            StatusCode::FORBIDDEN,
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            reason,
+        )
+            .into_response(),
+        None => next.run(req).await,
     }
+}
 
-    // Create config manager
-    let config_manager = Arc::new(ConfigManager::new(config_path.clone()));
-
-    // Load initial sources
-    let sources = match config_manager.load_sources() {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Failed to load sources: {}", e);
-            std::process::exit(1);
-        }
+/// CORS: by default only the server's own origins; CORS_ALLOWED_ORIGINS
+/// (comma-separated) replaces them. Returns the layer and the configured list.
+fn cors_layer(default_origins: &[String]) -> (CorsLayer, Vec<String>) {
+    let configured: Vec<String> = env::var("CORS_ALLOWED_ORIGINS")
+        .map(|s| {
+            s.split(',')
+                .map(|o| o.trim().to_string())
+                .filter(|o| !o.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let origins = if configured.is_empty() {
+        default_origins.to_vec()
+    } else {
+        tracing::info!("Configured CORS origins: {:?}", configured);
+        configured.clone()
     };
+    let layer = CorsLayer::new()
+        .allow_origin(AllowOrigin::list(
+            origins.iter().filter_map(|s| s.parse().ok()).collect::<Vec<_>>(),
+        ))
+        .allow_methods(Any)
+        .allow_headers(Any);
+    (layer, configured)
+}
 
-    tracing::info!("Loaded {} sources", sources.len());
-    for source in &sources {
-        tracing::info!(
-            "  {} @ {:?} (valid: {})",
-            source.name,
-            source.path,
-            source.valid
+fn build_app(state: AppState, meta: Arc<Info>, guard: Arc<Guard>, cors: CorsLayer) -> Router {
+    let api = Router::new()
+        .route("/api/health", get(health))
+        .route("/api/config", get(get_config))
+        .route("/api/config/sources", put(update_sources))
+        .route("/api/sources", get(get_sources))
+        .route("/api/changes", get(get_changes))
+        .route("/api/changes/{id}", get(get_change_detail))
+        .route("/api/specs", get(get_specs))
+        .route("/api/specs/{id}", get(get_spec_detail))
+        .route("/api/ideas", get(get_ideas).post(create_idea))
+        .route("/api/ideas/{id}", delete(delete_idea).put(update_idea))
+        .route("/api/events", get(sse_handler))
+        .with_state(state.clone())
+        .merge(
+            Router::new()
+                .route("/api/info", get(get_info))
+                .with_state((state, meta)),
         );
-    }
 
-    // Create broadcast channel for SSE updates
-    let (update_tx, _) = broadcast::channel::<()>(16);
+    // If FRONTEND_DIR is set, serve it (dev mode), otherwise use embedded assets
+    let app = if let Ok(frontend_dir) = env::var("FRONTEND_DIR") {
+        tracing::info!("Serving frontend from local directory: {}", frontend_dir);
+        api.fallback_service(ServeDir::new(frontend_dir))
+    } else {
+        api.fallback(static_handler)
+    };
+    app.layer(cors)
+        .layer(middleware::from_fn_with_state(guard, request_guard))
+}
 
-    // Create a separate channel for watcher restarts (config changes)
-    let (config_update_tx, _) = broadcast::channel::<()>(16);
-    let config_update_tx_for_watcher = config_update_tx.clone();
+// === File watcher ===
 
-    // Create app state
-    let state = AppState::new(sources.clone(), config_manager.clone(), update_tx.clone(), config_update_tx.clone());
-
-    // Setup file watcher with dynamic update support
-    let state_for_watcher = state.clone();
+fn spawn_watcher(state: AppState, config_update_tx: broadcast::Sender<()>) {
     tokio::spawn(async move {
         // Use full debouncer to get event kinds
         let mut current_watcher: Option<notify_debouncer_full::Debouncer<notify::RecommendedWatcher, FileIdMap>> = None;
-        let mut config_rx = config_update_tx_for_watcher.subscribe();
-
-        // Initial setup
+        let mut config_rx = config_update_tx.subscribe();
         let mut should_setup = true;
 
         loop {
             if should_setup {
-                // Get current sources
-                let sources = state_for_watcher.get_sources().await;
+                let sources = state.get_sources().await;
 
                 // Drop old watcher if it exists
                 if let Some(debouncer) = current_watcher.take() {
                     drop(debouncer);
                 }
 
-                // Create new watcher
-                let update_tx_watcher = state_for_watcher.update_tx.clone();
-                
+                let update_tx_watcher = state.update_tx.clone();
+
                 // Using notify-debouncer-full to filter Access events
                 match new_debouncer(
                     Duration::from_millis(500),
-                    None, // No cache timeout
-                    move |result: Result<Vec<DebouncedEvent>, Vec<notify::Error>>| {
-                        match result {
-                            Ok(events) => {
-                                let mut changed = false;
-                                for debounced_event in events {
-                                    // Filter out Access events which are causing infinite loops
-                                    match debounced_event.event.kind {
-                                        EventKind::Access(_) => {
-                                            // Ignore access events
-                                            continue;
-                                        }
-                                        _ => {
-                                            tracing::info!("File changed: {:?} {:?}", debounced_event.event.paths, debounced_event.event.kind);
-                                            changed = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                
-                                if changed {
-                                    let _ = update_tx_watcher.send(());
-                                }
+                    None,
+                    move |result: Result<Vec<DebouncedEvent>, Vec<notify::Error>>| match result {
+                        Ok(events) => {
+                            // Access events would cause infinite refresh loops
+                            let changed = events
+                                .iter()
+                                .find(|e| !matches!(e.event.kind, EventKind::Access(_)));
+                            if let Some(e) = changed {
+                                tracing::info!("File changed: {:?} {:?}", e.event.paths, e.event.kind);
+                                let _ = update_tx_watcher.send(());
                             }
-                            Err(errors) => {
-                                for e in errors {
-                                    tracing::warn!("File watcher error: {}", e);
-                                }
+                        }
+                        Err(errors) => {
+                            for e in errors {
+                                tracing::warn!("File watcher error: {}", e);
                             }
                         }
                     },
                 ) {
                     Ok(mut debouncer) => {
-                        // Watch all valid source directories
                         for source in sources.iter().filter(|s| s.valid) {
                             if let Err(e) = debouncer.watcher().watch(&source.path, RecursiveMode::Recursive) {
                                 tracing::warn!("Failed to watch source {:?}: {}", source.path, e);
@@ -605,91 +637,352 @@ async fn main() {
             }
         }
     });
+}
 
-    // ... rest of main ...
-    // Determine port
-    // ...
-    let config_response = config_manager.get_config_response().unwrap_or(ConfigResponse {
-        sources: vec![],
-        port: 3000,
-    });
-    
-    let port = env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(config_response.port);
-        
-    // ... (rest is same)
-    
-    // Configure CORS from environment variable
-    let cors = if let Ok(origins_str) = env::var("CORS_ALLOWED_ORIGINS") {
-        // Parse comma-separated origins
-        let origins: Vec<String> = origins_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+// === Startup ===
 
-        if origins.is_empty() {
-            tracing::warn!("CORS_ALLOWED_ORIGINS is set but empty, using safe defaults");
-            // Safe defaults: localhost only
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::exact(
-                    "http://localhost:3000".parse().unwrap()
-                ))
-                .allow_methods(Any)
-                .allow_headers(Any)
-        } else {
-            tracing::info!("Configured CORS origins: {:?}", origins);
-            let allow_origin = AllowOrigin::list(
-                origins.iter()
-                    .filter_map(|s| s.parse().ok())
-                    .collect::<Vec<_>>()
-            );
-            CorsLayer::new()
-                .allow_origin(allow_origin)
-                .allow_methods(Any)
-                .allow_headers(Any)
+#[tokio::main]
+async fn main() -> ExitCode {
+    let args = Args::parse();
+
+    // Logs go to stderr; stdout is reserved for the banner / --json line.
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(cli::log_filter(args.verbose)));
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .init();
+
+    match run(args).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("openspec-ui: {message}");
+            ExitCode::FAILURE
         }
-    } else {
-        // Default to safe localhost-only origins if env var is not set
-        tracing::info!("CORS_ALLOWED_ORIGINS not set, using safe defaults (localhost only)");
-        CorsLayer::new()
-            .allow_origin(AllowOrigin::exact(
-                "http://localhost:3000".parse().unwrap()
-            ))
-            .allow_methods(Any)
-            .allow_headers(Any)
+    }
+}
+
+fn print_stdout(text: &str) {
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(text.as_bytes());
+    let _ = out.flush();
+}
+
+/// The phone address for a server listening on every interface.
+/// Inside a container the address is the container's, not the host's.
+fn lan_url_for(ip: std::net::IpAddr, port: u16) -> Option<String> {
+    (ip.is_unspecified() && !startup::in_container())
+        .then(startup::lan_ip)
+        .flatten()
+        .map(|lan| startup::local_url(lan, port))
+}
+
+fn maybe_open_browser(args: &Args, url: &str) {
+    let tty = std::io::stdout().is_terminal();
+    if startup::should_open_browser(args.no_open, args.json, tty, |k| env::var(k).ok(), startup::in_container()) {
+        startup::open_browser(url);
+    }
+}
+
+async fn run(args: Args) -> Result<(), String> {
+    let cwd = env::current_dir().map_err(|e| format!("Cannot read the current folder: {e}"))?;
+    let env_config = env::var("OPENSPEC_UI_CONFIG").ok();
+    let choice = cli::choose_sources(args.config.as_deref(), &args.paths, env_config.as_deref(), &cwd);
+    let ip = startup::parse_host(&args.host)?;
+    let allowed_hosts = guard::parse_allowed_hosts(&args.allowed_hosts)?;
+
+    // Check inputs before touching the network: a wrong explicit config or
+    // path is an error, never a silent fall-back to scanning.
+    let (mode, config_port) = match &choice {
+        SourceChoice::ConfigFile { path, origin } => {
+            let abs = path.canonicalize().map_err(|_| {
+                format!("Config file not found: {} (from {})", path.display(), origin.describe())
+            })?;
+            let config = config::Config::load(&abs).map_err(|e| format!("{}: {e}", abs.display()))?;
+            (Mode::File { path: abs }, config.port)
+        }
+        SourceChoice::Discover { roots } => {
+            let mut canonical: Vec<PathBuf> = Vec::new();
+            for root in roots {
+                let c = root
+                    .canonicalize()
+                    .map_err(|_| format!("Folder not found: {}", root.display()))?;
+                if !c.is_dir() {
+                    return Err(format!("Not a folder: {}", root.display()));
+                }
+                if !canonical.contains(&c) {
+                    canonical.push(c);
+                }
+            }
+            (Mode::Discovered { roots: canonical }, None)
+        }
     };
 
-    let mut app = Router::new()
-        .route("/api/health", get(health))
-        .route("/api/config", get(get_config))
-        .route("/api/config/sources", put(update_sources))
-        .route("/api/sources", get(get_sources))
-        .route("/api/changes", get(get_changes))
-        .route("/api/changes/{id}", get(get_change_detail))
-        .route("/api/specs", get(get_specs))
-        .route("/api/specs/{id}", get(get_spec_detail))
-        .route("/api/ideas", get(get_ideas).post(create_idea))
-        .route("/api/ideas/{id}", delete(delete_idea).put(update_idea))
-        .route("/api/events", get(sse_handler))
-        .layer(cors)
-        .with_state(state);
+    let (mode_name, config_path, roots) = match &mode {
+        Mode::File { path } => ("file", Some(path.display().to_string()), Vec::new()),
+        Mode::Discovered { roots } => (
+            "discovered",
+            None,
+            roots.iter().map(|r| r.display().to_string()).collect::<Vec<_>>(),
+        ),
+    };
+    let scope = Scope {
+        host: ip.to_string(),
+        mode: mode_name.to_string(),
+        config_path: config_path.clone(),
+        roots: roots.clone(),
+    };
 
-    // If FRONTEND_DIR is set, use ServeDir (dev mode), otherwise use embedded assets
-    if let Ok(frontend_dir) = env::var("FRONTEND_DIR") {
-        tracing::info!("Serving frontend from local directory: {}", frontend_dir);
-        let serve_dir = ServeDir::new(frontend_dir);
-        app = app.nest_service("/", serve_dir.clone()).fallback_service(serve_dir);
+    let (port, port_origin) = cli::choose_port(args.port, config_port);
+    let requested_by = port_origin.map(|o| match o {
+        cli::PortOrigin::FlagOrEnv => "--port or the PORT variable".to_string(),
+        cli::PortOrigin::ConfigFile => format!(
+            "\"port\" in {}",
+            config_path.as_deref().unwrap_or(cli::CONFIG_FILE_NAME)
+        ),
+    });
+    let (listener, skipped_ports) = match startup::bind(ip, port, requested_by.as_deref(), &scope).await? {
+        Bound::Reused(mut info) => {
+            info.reused = true;
+            info.lan_url = lan_url_for(ip, info.port);
+            if args.json {
+                print_stdout(&format!("{}\n", serde_json::to_string(&info).unwrap_or_default()));
+            } else {
+                print_stdout(&startup::banner(&startup::BannerContext {
+                    info: &info,
+                    base: None,
+                    origin: String::new(),
+                    skipped_ports: &[],
+                    lan_url: info.lan_url.clone(),
+                    empty_hint: false,
+                    notes: vec![],
+                }));
+            }
+            maybe_open_browser(&args, &info.url);
+            return Ok(());
+        }
+        Bound::Listening { listener, skipped } => (listener, skipped),
+    };
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("Cannot read the listening address: {e}"))?
+        .port();
+    let url = startup::local_url(ip, port);
+
+    // Build the source list. Scanning happens after binding so that a reused
+    // server answers instantly.
+    let mut notes = Vec::new();
+    let (config_manager, origin) = match &mode {
+        Mode::File { path } => {
+            notes.push(format!("Edits in Settings are saved to {}.", path.display()));
+            (ConfigManager::from_file(path.clone()), format!("listed in {}", path.display()))
+        }
+        Mode::Discovered { roots: dirs } => {
+            let found = discovery::discover(dirs, args.depth);
+            tracing::info!(
+                "discovery: {} sources, {} folders read, {} worktrees skipped, {:?}",
+                found.sources.len(),
+                found.dirs_visited,
+                found.worktrees_skipped,
+                found.elapsed
+            );
+            let folders = if found.dirs_visited == 1 { "folder" } else { "folders" };
+            let home = startup::home_dir();
+            let shown_roots: Vec<String> = roots
+                .iter()
+                .map(|r| startup::display_path(r, None, home.as_deref()))
+                .collect();
+            let origin = if found.dirs_visited == 0 {
+                // every PATH was a repo or an openspec folder: nothing to search
+                format!("in {}", shown_roots.join(", "))
+            } else {
+                format!(
+                    "found in {} (searched {} {folders} in {} ms)",
+                    shown_roots.join(", "),
+                    found.dirs_visited,
+                    found.elapsed.as_millis()
+                )
+            };
+            if found.truncated {
+                notes.push(format!(
+                    "Search stopped after {} folders. Point openspec-ui at a narrower folder.",
+                    discovery::MAX_DIRS
+                ));
+            }
+            if found.worktrees_skipped > 0 {
+                notes.push(format!(
+                    "Skipped {} linked git worktree(s); pass one as a PATH to include it.",
+                    found.worktrees_skipped
+                ));
+            }
+            notes.push("Edits in Settings last until you stop the server; nothing is written to disk.".to_string());
+            (ConfigManager::discovered(dirs.clone(), found.sources), origin)
+        }
+    };
+    let config_manager = Arc::new(config_manager);
+    config_manager.set_port(port);
+    let sources = config_manager
+        .load_sources()
+        .map_err(|e| format!("Failed to load sources: {e}"))?;
+
+    // Broadcast channels for SSE updates and watcher restarts
+    let (update_tx, _) = broadcast::channel::<()>(16);
+    let (config_update_tx, _) = broadcast::channel::<()>(16);
+    let state = AppState::new(sources.clone(), config_manager.clone(), update_tx.clone(), config_update_tx.clone());
+    spawn_watcher(state.clone(), config_update_tx);
+
+    let lan_url = lan_url_for(ip, port);
+
+    let info = Info {
+        name: startup::APP_NAME.to_string(),
+        version: cli::VERSION.to_string(),
+        url: url.clone(),
+        host: ip.to_string(),
+        port,
+        pid: std::process::id(),
+        mode: mode_name.to_string(),
+        config_path,
+        roots,
+        sources: Vec::new(),
+        changelog: cli::CHANGELOG_URL.to_string(),
+        lan_url: lan_url.clone(),
+        reused: false,
+    };
+    let meta = Arc::new(info.clone());
+
+    let local_origins = vec![url.clone(), format!("http://localhost:{port}")];
+    let (cors, allowed_origins) = cors_layer(&local_origins);
+    let guard = Arc::new(Guard {
+        allowed_hosts,
+        allowed_origins,
+    });
+    let app = build_app(state, meta, guard, cors);
+
+    // Announce
+    let mut announced = info;
+    announced.sources = info_sources(&sources);
+    if args.json {
+        print_stdout(&format!("{}\n", serde_json::to_string(&announced).unwrap_or_default()));
     } else {
-        tracing::info!("Serving embedded frontend assets");
-        app = app.fallback(static_handler);
+        // With one searched folder, list projects relative to it.
+        let base = match announced.roots.as_slice() {
+            [single] => Some(single.clone()),
+            _ => None,
+        };
+        print_stdout(&startup::banner(&startup::BannerContext {
+            info: &announced,
+            base,
+            origin,
+            skipped_ports: &skipped_ports,
+            lan_url,
+            empty_hint: matches!(mode, Mode::Discovered { .. }),
+            notes,
+        }));
+    }
+    maybe_open_browser(&args, &url);
+
+    axum::serve(listener, app.into_make_service_with_connect_info::<ClientAddr>())
+        .await
+        .map_err(|e| format!("Server stopped: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn client(remote: &str) -> ClientAddr {
+        ClientAddr { remote: remote.parse().unwrap(), local: Some("192.168.1.5:3000".parse().unwrap()) }
     }
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("Starting server on http://localhost:{}", port);
+    fn test_state(dir: &std::path::Path) -> AppState {
+        let manager = Arc::new(ConfigManager::discovered(vec![dir.to_path_buf()], vec![]));
+        let (tx, _) = broadcast::channel(4);
+        let (config_tx, _) = broadcast::channel(4);
+        AppState::new(vec![], manager, tx, config_tx)
+    }
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    #[tokio::test]
+    async fn only_this_machine_may_repoint_the_sources() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("openspec/specs")).unwrap();
+        let state = test_state(tmp.path());
+        let request = || {
+            Json(UpdateSourcesRequest {
+                sources: vec![SourceConfig { name: "x".into(), path: tmp.path().join("openspec").display().to_string() }],
+            })
+        };
+
+        let phone = update_sources(State(state.clone()), ConnectInfo(client("192.168.1.20:50000")), request()).await;
+        let (status, Json(body)) = phone.err().expect("a phone must not change the sources");
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.error.contains("computer openspec-ui runs on"), "{}", body.error);
+        assert!(state.get_sources().await.is_empty());
+
+        let config = get_config(State(state.clone()), ConnectInfo(client("192.168.1.20:50000"))).await.unwrap();
+        assert!(!config.0.sources_editable);
+
+        let here = update_sources(State(state.clone()), ConnectInfo(client("127.0.0.1:50000")), request()).await;
+        assert!(here.is_ok());
+        assert_eq!(state.get_sources().await.len(), 1);
+        let config = get_config(State(state.clone()), ConnectInfo(client("127.0.0.1:50000"))).await.unwrap();
+        assert!(config.0.sources_editable);
+        assert_eq!(serde_json::to_value(&config.0).unwrap()["sourcesEditable"], true);
+    }
+
+    async fn raw(port: u16, request: &str) -> String {
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+    }
+
+    #[tokio::test]
+    async fn served_app_refuses_rebound_hosts_and_foreign_origins() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(tmp.path());
+        let meta = Arc::new(Info {
+            name: startup::APP_NAME.into(),
+            version: cli::VERSION.into(),
+            url: String::new(),
+            host: "0.0.0.0".into(),
+            port: 0,
+            pid: 0,
+            mode: "discovered".into(),
+            config_path: None,
+            roots: vec![],
+            sources: vec![],
+            changelog: String::new(),
+            lan_url: None,
+            reused: false,
+        });
+        let guard = Arc::new(Guard { allowed_hosts: vec![], allowed_origins: vec![] });
+        let (cors, _) = cors_layer(&[]);
+        let app = build_app(state, meta, guard, cors);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(listener, app.into_make_service_with_connect_info::<ClientAddr>()).await.unwrap();
+        });
+
+        let ok = raw(port, "GET /api/health HTTP/1.1\r\nHost: 192.168.1.5:3000\r\nConnection: close\r\n\r\n").await;
+        assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
+
+        let rebound =
+            raw(port, "GET /api/specs HTTP/1.1\r\nHost: rebind.attacker.example:3000\r\nConnection: close\r\n\r\n").await;
+        assert!(rebound.starts_with("HTTP/1.1 403"), "{rebound}");
+        assert!(rebound.contains("--allowed-host rebind.attacker.example"), "{rebound}");
+
+        let body = r#"{"title":"t","description":"d"}"#;
+        let csrf = raw(
+            port,
+            &format!(
+                "POST /api/ideas HTTP/1.1\r\nHost: 192.168.1.5:3000\r\nOrigin: http://203.0.113.9\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            ),
+        )
+        .await;
+        assert!(csrf.starts_with("HTTP/1.1 403"), "{csrf}");
+    }
 }

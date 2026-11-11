@@ -1,0 +1,39 @@
+# OpenSpec's built-in `spec-driven` workflow schema, reduced to the parts that
+# decide status: artifact ids, the files they generate, their dependencies, and
+# which file apply tracks. Instructions and templates are left out.
+#
+# Source: @fission-ai/openspec schemas/spec-driven/schema.yaml (MIT).
+# The conformance test compares this graph with the one recorded from the
+# installed OpenSpec package (conformance/fixtures/manifest.json), so a change
+# upstream fails CI instead of drifting silently.
+name: spec-driven
+version: 1
+description: Default OpenSpec workflow - proposal → specs → design → tasks
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Initial proposal document outlining the change
+    template: proposal.md
+    requires: []
+  - id: specs
+    generates: "specs/**/*.md"
+    description: Detailed specifications for the change
+    template: spec.md
+    requires:
+      - proposal
+  - id: design
+    generates: design.md
+    description: Technical design document with implementation details
+    template: design.md
+    requires:
+      - proposal
+  - id: tasks
+    generates: tasks.md
+    description: Implementation checklist with trackable tasks
+    template: tasks.md
+    requires:
+      - specs
+      - design
+apply:
+  requires: [tasks]
+  tracks: tasks.md

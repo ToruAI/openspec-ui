@@ -2,6 +2,7 @@
 name = "openspec-ui"
 version = "0.2.0"
 edition = "2021"
+build = "build.rs"
 authors = ["ToruGuy"]
 repository = "https://github.com/ToruAI/openspec-ui"
 license = "MIT"
@@ -13,17 +14,21 @@ tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 notify = "6.1.1"
 notify-debouncer-full = "0.3"
 walkdir = "2"
 regex = "1"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2"
 futures = "0.3"
 rust-embed = "8.9.0"
 mime_guess = "2.0.5"
 anyhow = "1.0.100"
 serde_yaml = "0.9"
+globset = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,32 @@
+{
+  "name": "openspec-ui",
+  "version": "0.0.0-dev",
+  "description": "Read-only kanban dashboard for OpenSpec changes and specs. Run it with: npx openspec-ui",
+  "license": "MIT",
+  "bin": {
+    "openspec-ui": "bin/openspec-ui.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "checksums.json",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ToruAI/openspec-ui.git",
+    "directory": "npm"
+  },
+  "homepage": "https://github.com/ToruAI/openspec-ui#readme",
+  "bugs": "https://github.com/ToruAI/openspec-ui/issues",
+  "keywords": ["openspec", "dashboard", "kanban", "spec-driven-development"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test test/launcher.test.js"
+  }
+}

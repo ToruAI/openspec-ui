@@ -1,7 +1,6 @@
 # Rust
 target/
 **/*.rs.bk
-Cargo.lock
 
 # Node.js
 node_modules/
@@ -68,3 +67,10 @@ coverage/
 __pycache__/
 *.pyc
 
+
+# Agent worktrees
+.claude/worktrees/
+
+# Static live demo (see scripts/build-demo.mjs)
+dist-demo/
+frontend/demo-snapshot/

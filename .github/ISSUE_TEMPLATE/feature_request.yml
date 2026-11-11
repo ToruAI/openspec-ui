@@ -1,0 +1,20 @@
+name: Feature request
+description: Something the board should show or do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to see or do?
+      description: The situation, not the solution. "I can't tell which changes are waiting on me" beats "add a filter".
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: How you use OpenSpec (one repo or many, which coding agent, phone or desktop).

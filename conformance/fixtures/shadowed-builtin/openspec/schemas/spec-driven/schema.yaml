@@ -1,0 +1,20 @@
+name: spec-driven
+version: 1
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Proposal
+    template: x.md
+  - id: tasks
+    generates: tasks.md
+    description: Tasks
+    template: x.md
+    requires: [proposal]
+  - id: review
+    generates: review.md
+    description: Review notes
+    template: x.md
+    requires: [tasks]
+apply:
+  requires: [tasks]
+  tracks: tasks.md
