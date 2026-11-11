@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Plus, Trash2, AlertCircle, FolderOpen, Loader2, Check } from 'lucide-react';
 import { getConfig, updateSources, type ConfigResponse, type SourceConfig } from '../hooks/useApi';
 import { cn } from '@/lib/utils';
+import { IS_DEMO } from '../lib/transport';
 
 interface SettingsModalProps {
   open: boolean;
@@ -87,7 +88,9 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     }
   }
 
-  const sessionOnly = storage.mode === 'discovered';
+  const sessionOnly = storage.mode === 'discovered' && !IS_DEMO;
+  // The static demo shows sample projects; editing sources would do nothing, so it is disabled.
+  const busy = loading || IS_DEMO;
   const configJson = JSON.stringify({ sources }, null, 2);
 
   async function handleCopyConfig() {
@@ -132,7 +135,12 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             <div>
               <h3 className="text-sm font-semibold leading-none">Sources</h3>
               <p className="text-sm text-muted-foreground mt-1.5">
-                {sessionOnly ? (
+                {IS_DEMO ? (
+                  <>
+                    These are the sample projects of this demo. Sources can be added and removed
+                    when you run openspec-ui on your own machine.
+                  </>
+                ) : sessionOnly ? (
                   <>
                     Found by searching{' '}
                     <code className="font-mono text-xs break-all">{(storage.roots ?? []).join(', ')}</code>.
@@ -188,7 +196,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleRemoveSource(i)}
-                        disabled={loading}
+                        disabled={busy}
                         className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 rounded-lg shrink-0"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -225,7 +233,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                     placeholder="e.g. brain-gate"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    disabled={loading}
+                    disabled={busy}
                     className="h-9 bg-background/50"
                   />
                 </div>
@@ -236,14 +244,14 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                     placeholder="/path/to/repo"
                     value={newPath}
                     onChange={(e) => setNewPath(e.target.value)}
-                    disabled={loading}
+                    disabled={busy}
                     className="h-9 bg-background/50 font-mono text-sm"
                   />
                 </div>
               </div>
               <Button 
                 onClick={handleAddSource} 
-                disabled={!newName || !newPath || loading}
+                disabled={!newName || !newPath || busy}
                 className={cn(
                   "w-full sm:w-auto sm:ml-auto transition-all",
                   loading && "opacity-70"
