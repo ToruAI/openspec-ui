@@ -32,7 +32,12 @@ interface HeaderProps {
   onShowArchivedChange?: (show: boolean) => void;
   onOpenSettings?: () => void;
   onOpenNewIdea?: () => void;
+  /** Running server version, shown as a badge linking to the changelog */
+  version?: string;
+  changelogUrl?: string;
 }
+
+const DEFAULT_CHANGELOG_URL = 'https://github.com/ToruAI/openspec-ui/blob/main/CHANGELOG.md';
 
 export function Header({
   currentView,
@@ -45,6 +50,8 @@ export function Header({
   onShowArchivedChange,
   onOpenSettings,
   onOpenNewIdea,
+  version,
+  changelogUrl = DEFAULT_CHANGELOG_URL,
 }: HeaderProps) {
   const { theme, toggle } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -66,6 +73,17 @@ export function Header({
         <span className="text-gradient">Open</span>
         <span className="text-foreground">Spec</span>
       </span>
+      {version && (
+        <a
+          href={changelogUrl}
+          target="_blank"
+          rel="noreferrer"
+          title="What's new in this version"
+          className="cursor-pointer rounded-md border border-border/60 px-1.5 py-0.5 text-[11px] font-mono leading-none text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+        >
+          v{version}
+        </a>
+      )}
     </div>
   );
 

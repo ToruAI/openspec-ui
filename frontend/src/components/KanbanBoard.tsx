@@ -69,6 +69,27 @@ interface KanbanBoardProps {
   selectedSourceId: string | null;
   showArchived?: boolean;
   onOpenSettings?: () => void;
+  /** Folders the server searched (zero-config mode), for the empty state */
+  searchedRoots?: string[];
+}
+
+function EmptySourcesHint({ searchedRoots }: { searchedRoots?: string[] }) {
+  const searched = searchedRoots && searchedRoots.length > 0 ? searchedRoots.join(', ') : null;
+  return (
+    <div className="text-sm text-muted-foreground/80 mt-2 space-y-3 max-w-md">
+      <p>
+        {searched ? (
+          <>Nothing with an <code className="font-mono">openspec/</code> folder was found in <code className="font-mono break-all">{searched}</code>.</>
+        ) : (
+          <>Add the folder of a repo that uses OpenSpec.</>
+        )}
+      </p>
+      <div className="text-left inline-block rounded-lg bg-muted/50 px-4 py-3 font-mono text-xs space-y-1">
+        <div><span className="text-muted-foreground/60">$</span> openspec-ui ~/code <span className="text-muted-foreground/60"># search another folder</span></div>
+        <div><span className="text-muted-foreground/60">$</span> openspec init <span className="text-muted-foreground/60"># start OpenSpec in a repo</span></div>
+      </div>
+    </div>
+  );
 }
 
 export function KanbanBoard({ 
@@ -80,8 +101,9 @@ export function KanbanBoard({
   onCardClick, 
   onIdeaClick, 
   selectedSourceId, 
-  showArchived = false, 
-  onOpenSettings 
+  showArchived = false,
+  onOpenSettings,
+  searchedRoots,
 }: KanbanBoardProps) {
   const isMobile = useIsMobile();
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
@@ -290,7 +312,7 @@ export function KanbanBoard({
   
   if (!hasAnyItems) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-4">
+      <div className="flex flex-col items-center justify-center min-h-64 py-10 px-4 gap-4">
         <div className="w-20 h-20 rounded-2xl bg-muted/50 flex items-center justify-center">
           {hasNoSources ? (
             <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
@@ -301,7 +323,7 @@ export function KanbanBoard({
         <div className="text-center">
           <div className="text-muted-foreground text-lg font-medium">
             {hasNoSources
-              ? "No OpenSpec sources configured"
+              ? "No OpenSpec projects found"
               : selectedSourceId
                 ? "No changes found for this project"
                 : searchQuery
@@ -309,17 +331,18 @@ export function KanbanBoard({
                   : "No items found"
             }
           </div>
-          <p className="text-sm text-muted-foreground/70 mt-1">
-            {hasNoSources 
-              ? "Add a source to get started" 
-              : "Try adjusting your filters or create a new idea"
-            }
-          </p>
+          {hasNoSources ? (
+            <EmptySourcesHint searchedRoots={searchedRoots} />
+          ) : (
+            <p className="text-sm text-muted-foreground/70 mt-1">
+              Try adjusting your filters or create a new idea
+            </p>
+          )}
         </div>
         {hasNoSources && (
           <Button onClick={onOpenSettings} size="sm" className="mt-2">
             <FolderOpen className="h-4 w-4 mr-2" />
-            Configure Sources
+            Add a project folder
           </Button>
         )}
         {searchQuery && !hasAnyItems && !hasNoSources && (

@@ -248,7 +248,45 @@ export interface SourceConfig {
 
 export interface ConfigResponse {
   sources: SourceConfig[];
+  /** Port the server listens on */
   port: number;
+  /** 'file': edits are saved to configPath. 'discovered': found by scanning roots, edits are session-only. */
+  mode?: 'file' | 'discovered';
+  configPath?: string | null;
+  roots?: string[];
+  persistent?: boolean;
+}
+
+/** What the running server reports about itself (GET /api/info). */
+export interface ServerInfo {
+  name: string;
+  version: string;
+  url: string;
+  port: number;
+  mode: 'file' | 'discovered';
+  configPath: string | null;
+  roots: string[];
+  changelog: string;
+}
+
+export function useServerInfo() {
+  const [info, setInfo] = useState<ServerInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchJson<ServerInfo>(`${API_BASE}/info`)
+      .then((data) => {
+        if (!cancelled) setInfo(data);
+      })
+      .catch(() => {
+        // Older servers have no /api/info; the UI works without it.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return info;
 }
 
 export interface ErrorResponse {

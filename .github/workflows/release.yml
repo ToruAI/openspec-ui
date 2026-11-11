@@ -415,7 +415,7 @@ jobs:
 
       - name: Run the image
         run: |
-          docker run -d --name smoke -p 3000:3000 -v "$PWD/example-openspec:/workspace/openspec:ro" openspec-ui:smoke
+          docker run -d --name smoke -p 3000:3000 -v "$PWD/demo:/repos:ro" openspec-ui:smoke
           for _ in $(seq 1 40); do
             curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1 && ok=1 && break
             sleep 0.5

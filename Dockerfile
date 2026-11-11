@@ -8,8 +8,9 @@
 #   docker buildx build --target prebuilt --platform linux/amd64,linux/arm64 \
 #     --build-context bins=<dir containing amd64/openspec-ui and arm64/openspec-ui> .
 #
-# Run:  docker run -p 3000:3000 -v "$PWD":/workspace ghcr.io/toruai/openspec-ui
-# (with no arguments it serves the project mounted at /workspace, i.e. /workspace/openspec)
+# Run:  docker run -p 3000:3000 -v ~/code:/repos ghcr.io/toruai/openspec-ui
+# Repos mounted under /repos are found automatically. For a fixed list, mount a
+# config as /repos/openspec-ui.json or point OPENSPEC_UI_CONFIG at one.
 
 # --- Stage 1: frontend -------------------------------------------------------
 FROM node:22-alpine AS frontend-builder
@@ -23,8 +24,9 @@ RUN npm run build
 FROM rust:1-alpine AS backend-builder
 RUN apk add --no-cache musl-dev
 WORKDIR /app
-# Cargo.lock is optional (it is not committed upstream yet).
-COPY backend/Cargo.toml backend/Cargo.loc[k] ./backend/
+# build.rs stamps the binary with the repo-wide VERSION.
+COPY VERSION ./VERSION
+COPY backend/Cargo.toml backend/Cargo.lock backend/build.rs ./backend/
 WORKDIR /app/backend
 # Cache dependencies with a dummy main.
 RUN mkdir -p src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src
@@ -39,16 +41,17 @@ LABEL org.opencontainers.image.source="https://github.com/ToruAI/openspec-ui" \
       org.opencontainers.image.description="Read-only dashboard for OpenSpec changes and specs" \
       org.opencontainers.image.licenses="MIT"
 # Numeric uid, no RUN: keeps multi-arch builds free of emulated steps.
-WORKDIR /workspace
-WORKDIR /app
-COPY --chown=10001:10001 docker/openspec-ui.json /app/openspec-ui.json
-COPY --chmod=755 docker/entrypoint.sh /app/entrypoint.sh
+WORKDIR /repos
 USER 10001:10001
-ENV PORT=3000
+# Listen on all interfaces inside the container (the host decides what to
+# publish with -p), on a fixed port, and never try to open a browser.
+ENV OPENSPEC_UI_HOST=0.0.0.0 \
+    PORT=3000 \
+    OPENSPEC_UI_NO_OPEN=1
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/openspec-ui"]
 
 # --- Release image: prebuilt binaries ----------------------------------------
 FROM runtime-base AS prebuilt
