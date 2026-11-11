@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { X, FileText, Layers, CheckSquare, Palette, Loader2 } from 'lucide-react';
+import { X, FileText, Layers, Loader2 } from 'lucide-react';
 import { useChange } from '../hooks/useApi';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import type { Change } from '../types';
@@ -16,36 +16,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { artifactMeta, changeArtifacts } from "@/lib/artifacts";
+import { ArtifactChain } from './ArtifactChain';
 
 interface DetailModalProps {
   change: Change | null;
   onClose: () => void;
 }
 
-type Tab = 'proposal' | 'specs' | 'tasks' | 'design';
-
-const TAB_CONFIG: Record<Tab, { icon: React.ReactNode; label: string; color: string }> = {
-  proposal: { 
-    icon: <FileText className="h-4 w-4" />, 
-    label: 'Proposal',
-    color: 'text-blue-500'
-  },
-  specs: { 
-    icon: <Layers className="h-4 w-4" />, 
-    label: 'Specs',
-    color: 'text-emerald-500'
-  },
-  tasks: { 
-    icon: <CheckSquare className="h-4 w-4" />, 
-    label: 'Tasks',
-    color: 'text-amber-500'
-  },
-  design: { 
-    icon: <Palette className="h-4 w-4" />, 
-    label: 'Design',
-    color: 'text-purple-500'
-  },
-};
+/** Generic document tabs are prefixed so a custom artifact can never collide with a built-in tab. */
+const DOC_TAB = 'doc:';
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
@@ -55,39 +35,17 @@ const STATUS_STYLES: Record<string, string> = {
   archived: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
 };
 
-export function DetailModal({ change, onClose }: DetailModalProps) {
-  const { change: detail, loading } = useChange(change?.id || null);
-  const [activeTab, setActiveTab] = useState<Tab>('proposal');
-  const isMobile = useIsMobile();
-
-  useEffect(() => {
-    if (change) {
-      setActiveTab(
-        change.hasProposal ? 'proposal' :
-        change.hasSpecs ? 'specs' :
-        change.hasTasks ? 'tasks' :
-        change.hasDesign ? 'design' :
-        'proposal'
-      );
-    }
-  }, [change]);
-
-  if (!change) return null;
-
-  const availableTabs: Tab[] = [];
-  if (change.hasProposal) availableTabs.push('proposal');
-  if (change.hasSpecs) availableTabs.push('specs');
-  if (change.hasTasks) availableTabs.push('tasks');
-  if (change.hasDesign) availableTabs.push('design');
-
-  const LoadingState = () => (
+function LoadingState() {
+  return (
     <div className="flex flex-col items-center justify-center py-16 gap-3">
       <Loader2 className="h-8 w-8 text-primary animate-spin" />
       <div className="text-muted-foreground text-sm">Loading content...</div>
     </div>
   );
+}
 
-  const EmptyState = ({ message }: { message: string }) => (
+function EmptyState({ message }: { message: string }) {
+  return (
     <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
       <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center">
         <FileText className="h-8 w-8 text-muted-foreground/40" />
@@ -95,6 +53,28 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
       <div className="text-muted-foreground">{message}</div>
     </div>
   );
+}
+
+export function DetailModal({ change, onClose }: DetailModalProps) {
+  const { change: detail, loading } = useChange(change?.id || null);
+  const [activeTab, setActiveTab] = useState<string>('proposal');
+  const isMobile = useIsMobile();
+
+  const availableTabs: string[] = [];
+  if (change?.hasProposal) availableTabs.push('proposal');
+  if (change?.hasSpecs) availableTabs.push('specs');
+  if (change?.hasTasks) availableTabs.push('tasks');
+  if (change?.hasDesign) availableTabs.push('design');
+  // Every other written artifact gets a document tab once the detail has
+  // loaded: artifacts a custom schema adds, and built-in ids whose files live
+  // somewhere the dedicated tab does not read (e.g. design generating design/*.md).
+  const extraDocuments = (detail?.documents ?? []).filter((d) => !availableTabs.includes(d.artifactId));
+  for (const doc of extraDocuments) availableTabs.push(DOC_TAB + doc.artifactId);
+  // The last tab picked, while it exists; otherwise the first one this change has.
+  const currentTab = availableTabs.includes(activeTab) ? activeTab : (availableTabs[0] ?? 'proposal');
+
+  if (!change) return null;
+
 
   return (
     <Dialog open={!!change} onOpenChange={(open) => !open && onClose()}>
@@ -139,7 +119,18 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
                     {change.taskStats.done}/{change.taskStats.total} tasks
                   </Badge>
                 )}
+                {change.schema && change.schema !== 'spec-driven' && (
+                  <Badge variant="outline" className="text-xs font-medium" title="Workflow schema">
+                    {change.schema}
+                  </Badge>
+                )}
               </div>
+              <ArtifactChain
+                className="mt-3"
+                artifacts={changeArtifacts(change)}
+                error={change.error}
+                warnings={change.warnings}
+              />
             </div>
             {isMobile && (
               <DialogClose asChild>
@@ -153,13 +144,14 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
 
         {/* Content */}
         <div className={`flex-1 overflow-hidden flex flex-col min-h-0 ${isMobile ? 'px-4' : 'px-6'}`}>
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <Tabs value={currentTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {availableTabs.length > 0 && (
             <TabsList 
               className="grid w-full flex-shrink-0 bg-muted/50 p-1 h-auto gap-1" 
               style={{ gridTemplateColumns: `repeat(${availableTabs.length}, 1fr)` }}
             >
               {availableTabs.map((tab) => {
-                const config = TAB_CONFIG[tab];
+                const config = artifactMeta(tab.startsWith(DOC_TAB) ? tab.slice(DOC_TAB.length) : tab);
                 return (
                   <TabsTrigger 
                     key={tab}
@@ -172,19 +164,22 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
                   >
                     <span className={cn(
                       "transition-colors",
-                      activeTab === tab ? config.color : "text-muted-foreground"
+                      currentTab === tab ? config.color : "text-muted-foreground"
                     )}>
-                      {config.icon}
+                      <config.Icon className="h-4 w-4" />
                     </span>
                     <span className="hidden sm:inline">{config.label}</span>
                   </TabsTrigger>
                 );
               })}
             </TabsList>
+            )}
 
             <div className="flex-1 overflow-y-auto overflow-x-hidden mt-4 scroll-smooth">
               <div className="pr-2 pb-8 overflow-hidden">
-                {loading ? (
+                {availableTabs.length === 0 && !loading ? (
+                  <EmptyState message="Nothing written for this change yet" />
+                ) : loading ? (
                   <LoadingState />
                 ) : !detail ? (
                   <EmptyState message="Failed to load details" />
@@ -242,6 +237,27 @@ export function DetailModal({ change, onClose }: DetailModalProps) {
                         <EmptyState message="No design document found" />
                       )}
                     </TabsContent>
+
+                    {extraDocuments.map((doc) => (
+                      <TabsContent key={doc.artifactId} value={DOC_TAB + doc.artifactId} className="mt-0 data-[state=active]:block animate-in fade-in-50 duration-200 overflow-hidden">
+                        <div className="space-y-8 overflow-hidden">
+                          {doc.files.map((file, idx) => (
+                            <div key={file.path} className="overflow-hidden">
+                              {doc.files.length > 1 && (
+                                <div className="flex items-center gap-2 mb-4 min-w-0">
+                                  <FileText className="h-4 w-4 text-sky-500 flex-shrink-0" />
+                                  <h3 className="text-sm font-semibold font-mono text-foreground truncate">{file.path}</h3>
+                                </div>
+                              )}
+                              <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-primary prose-code:text-sm overflow-hidden break-words">
+                                <ReactMarkdown>{file.content}</ReactMarkdown>
+                              </article>
+                              {idx < doc.files.length - 1 && <Separator className="my-8" />}
+                            </div>
+                          ))}
+                        </div>
+                      </TabsContent>
+                    ))}
                   </>
                 )}
               </div>

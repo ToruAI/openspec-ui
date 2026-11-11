@@ -1,0 +1,74 @@
+{
+  "case": "store-pointer",
+  "description": "A code repo whose openspec/config.yaml says `store: team-plans`: its planning lives in a store elsewhere on the machine.",
+  "openspecVersion": "1.17.0",
+  "userData": false,
+  "root": {
+    "source": "declared",
+    "storeId": "team-plans"
+  },
+  "list": [
+    {
+      "name": "add-login",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    }
+  ],
+  "status": {
+    "add-login": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "ready",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "blocked",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": [
+            "specs",
+            "design"
+          ]
+        }
+      ]
+    }
+  }
+}

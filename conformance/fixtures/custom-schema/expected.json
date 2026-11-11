@@ -1,0 +1,316 @@
+{
+  "case": "custom-schema",
+  "description": "Project-local and user-level workflow schemas: custom artifact chains, glob outputs, apply.tracks, broken schemas.",
+  "openspecVersion": "1.17.0",
+  "userData": true,
+  "root": {
+    "source": "nearest"
+  },
+  "list": [
+    {
+      "name": "cyclic-change",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "lean-done",
+      "archived": false,
+      "completedTasks": 2,
+      "totalTasks": 2,
+      "status": "complete"
+    },
+    {
+      "name": "marker-free-uses-project-default",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "mismatched",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 1,
+      "status": "in-progress"
+    },
+    {
+      "name": "personal-flow",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "research-fresh",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "research-tasks-split",
+      "archived": false,
+      "completedTasks": 2,
+      "totalTasks": 3,
+      "status": "in-progress"
+    },
+    {
+      "name": "untracked-todo",
+      "archived": false,
+      "completedTasks": 1,
+      "totalTasks": 2,
+      "status": "in-progress"
+    }
+  ],
+  "status": {
+    "cyclic-change": {
+      "ok": false,
+      "code": "change_error",
+      "message": "Invalid schema at '<project>/openspec/schemas/cyclic/schema.yaml': Cyclic dependency detected: a → b → a"
+    },
+    "lean-done": {
+      "ok": true,
+      "schemaName": "lean",
+      "isPlanningComplete": true,
+      "applyRequires": [
+        "checklist"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "brief",
+          "outputPath": "brief.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "checklist",
+          "outputPath": "checklist.md",
+          "status": "done",
+          "requires": [
+            "brief"
+          ],
+          "missingDeps": []
+        }
+      ]
+    },
+    "marker-free-uses-project-default": {
+      "ok": true,
+      "schemaName": "research-first",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "research",
+          "outputPath": "research.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "ready",
+          "requires": [
+            "research"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "plan",
+          "outputPath": "plan/*.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks/*.md",
+          "status": "blocked",
+          "requires": [
+            "plan",
+            "research"
+          ],
+          "missingDeps": [
+            "plan"
+          ]
+        }
+      ]
+    },
+    "mismatched": {
+      "ok": true,
+      "schemaName": "mismatched-tracks",
+      "isPlanningComplete": true,
+      "applyRequires": [
+        "work"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "work",
+          "outputPath": "work/*.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        }
+      ]
+    },
+    "personal-flow": {
+      "ok": true,
+      "schemaName": "personal",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "note",
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "note",
+          "outputPath": "note.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "ready",
+          "requires": [
+            "note"
+          ],
+          "missingDeps": []
+        }
+      ]
+    },
+    "research-fresh": {
+      "ok": true,
+      "schemaName": "research-first",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "research",
+          "outputPath": "research.md",
+          "status": "ready",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "blocked",
+          "requires": [
+            "research"
+          ],
+          "missingDeps": [
+            "research"
+          ]
+        },
+        {
+          "id": "plan",
+          "outputPath": "plan/*.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks/*.md",
+          "status": "blocked",
+          "requires": [
+            "plan",
+            "research"
+          ],
+          "missingDeps": [
+            "research",
+            "plan"
+          ]
+        }
+      ]
+    },
+    "research-tasks-split": {
+      "ok": true,
+      "schemaName": "research-first",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "research",
+          "outputPath": "research.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "ready",
+          "requires": [
+            "research"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "plan",
+          "outputPath": "plan/*.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks/*.md",
+          "status": "done",
+          "requires": [
+            "plan",
+            "research"
+          ],
+          "missingDeps": []
+        }
+      ]
+    },
+    "untracked-todo": {
+      "ok": true,
+      "schemaName": "untracked",
+      "isPlanningComplete": true,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "tasks",
+          "outputPath": "todo.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        }
+      ]
+    }
+  }
+}

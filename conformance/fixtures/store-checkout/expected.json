@@ -1,0 +1,66 @@
+{
+  "case": "store-checkout",
+  "description": "A store (beta): a standalone planning repo with .openspec-store/store.yaml and the usual openspec/ layout.",
+  "openspecVersion": "1.17.0",
+  "userData": false,
+  "root": {
+    "source": "nearest"
+  },
+  "list": [
+    {
+      "name": "add-login",
+      "archived": false,
+      "completedTasks": 1,
+      "totalTasks": 2,
+      "status": "in-progress"
+    }
+  ],
+  "status": {
+    "add-login": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "done",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": []
+        }
+      ]
+    }
+  }
+}

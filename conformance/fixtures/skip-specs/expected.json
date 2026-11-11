@@ -1,0 +1,287 @@
+{
+  "case": "skip-specs",
+  "description": "skip_specs: true in .openspec.yaml turns unwritten specs/ artifacts into \"skipped\" and unblocks their dependents.",
+  "openspecVersion": "1.17.0",
+  "userData": false,
+  "root": {
+    "source": "nearest"
+  },
+  "list": [
+    {
+      "name": "skip-but-specs-written",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "skip-complete",
+      "archived": false,
+      "completedTasks": 1,
+      "totalTasks": 1,
+      "status": "complete"
+    },
+    {
+      "name": "skip-false",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "skip-fresh",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    },
+    {
+      "name": "skip-proposal-design",
+      "archived": false,
+      "completedTasks": 0,
+      "totalTasks": 0,
+      "status": "no-tasks"
+    }
+  ],
+  "status": {
+    "skip-but-specs-written": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "done",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "blocked",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": [
+            "design"
+          ]
+        }
+      ]
+    },
+    "skip-complete": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": true,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "skipped",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "done",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "done",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": []
+        }
+      ]
+    },
+    "skip-false": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "ready",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "blocked",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": [
+            "specs",
+            "design"
+          ]
+        }
+      ]
+    },
+    "skip-fresh": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "ready",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "skipped",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "blocked",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "blocked",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": [
+            "design"
+          ]
+        }
+      ]
+    },
+    "skip-proposal-design": {
+      "ok": true,
+      "schemaName": "spec-driven",
+      "isPlanningComplete": false,
+      "applyRequires": [
+        "tasks"
+      ],
+      "warnings": 0,
+      "artifacts": [
+        {
+          "id": "proposal",
+          "outputPath": "proposal.md",
+          "status": "done",
+          "requires": [],
+          "missingDeps": []
+        },
+        {
+          "id": "specs",
+          "outputPath": "specs/**/*.md",
+          "status": "skipped",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "design",
+          "outputPath": "design.md",
+          "status": "done",
+          "requires": [
+            "proposal"
+          ],
+          "missingDeps": []
+        },
+        {
+          "id": "tasks",
+          "outputPath": "tasks.md",
+          "status": "ready",
+          "requires": [
+            "specs",
+            "design"
+          ],
+          "missingDeps": []
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+name: lean
+version: 1
+artifacts:
+  - id: brief
+    generates: brief.md
+    description: Brief
+    template: x.md
+  - id: checklist
+    generates: checklist.md
+    description: Checklist
+    template: x.md
+    requires: [brief]
+apply:
+  requires: [checklist]
+  tracks: checklist.md

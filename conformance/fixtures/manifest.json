@@ -1,0 +1,56 @@
+{
+  "openspecVersion": "1.17.0",
+  "generator": "conformance/generate.mjs",
+  "cases": [
+    "spec-driven",
+    "task-syntax",
+    "skip-specs",
+    "metadata",
+    "custom-schema",
+    "shadowed-builtin",
+    "legacy-layout",
+    "nested-wrapper",
+    "store-checkout",
+    "store-pointer"
+  ],
+  "builtinSchemas": {
+    "spec-driven": {
+      "name": "spec-driven",
+      "artifacts": [
+        {
+          "id": "proposal",
+          "generates": "proposal.md",
+          "requires": []
+        },
+        {
+          "id": "specs",
+          "generates": "specs/**/*.md",
+          "requires": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "design",
+          "generates": "design.md",
+          "requires": [
+            "proposal"
+          ]
+        },
+        {
+          "id": "tasks",
+          "generates": "tasks.md",
+          "requires": [
+            "specs",
+            "design"
+          ]
+        }
+      ],
+      "apply": {
+        "requires": [
+          "tasks"
+        ],
+        "tracks": "tasks.md"
+      }
+    }
+  }
+}

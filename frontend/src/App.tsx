@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Header } from './components/Header';
 import { KanbanBoard } from './components/KanbanBoard';
+import { PlanningNotices } from './components/PlanningNotices';
 import { SpecsView } from './components/SpecsView';
 import { DetailModal } from './components/DetailModal';
 import { IdeaDetailModal } from './components/IdeaDetailModal';
@@ -109,6 +110,8 @@ function App() {
         />
         <main className={currentView === 'kanban' ? "px-4 pt-4 md:pt-6" : "max-w-7xl mx-auto px-4 pt-4 md:pt-6"}>
           {currentView === 'kanban' ? (
+            <>
+            <PlanningNotices sources={sources} selectedSourceId={selectedSourceId} />
             <KanbanBoard
               changes={changes}
               ideas={ideas}
@@ -122,6 +125,7 @@ function App() {
               onOpenSettings={() => setSettingsOpen(true)}
               searchedRoots={serverInfo?.mode === 'discovered' ? serverInfo.roots : undefined}
             />
+            </>
           ) : (
             <SpecsView selectedSourceId={effectiveSourceId} />
           )}
