@@ -1,27 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { fetchJson } from '../lib/transport';
 import type { Source, Change, ChangeDetail, Spec, SpecDetail, Idea } from '../types';
 
 const API_BASE = '/api';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
-
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    const text = await res.text();
-    try {
-        const json = JSON.parse(text);
-        if (json.error) throw new Error(json.error);
-    } catch {
-        // If not JSON or no error field, throw status text
-    }
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
-  
-  // Handle empty responses
-  const text = await res.text();
-  return text ? JSON.parse(text) : {} as T;
-}
 
 export function useSources() {
   const [sources, setSources] = useState<Source[]>([]);
@@ -213,6 +196,9 @@ export function useSSE(onUpdate: () => void): { connectionStatus: ConnectionStat
   }, [onUpdate]);
 
   useEffect(() => {
+    // The static demo has no server to push updates.
+    if (__DEMO__) return;
+
     const eventSource = new EventSource(`${API_BASE}/events`);
 
     eventSource.addEventListener('open', () => {

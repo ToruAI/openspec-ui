@@ -39,6 +39,19 @@ OPENSPEC_BIN=/path/to/openspec node demo/generate.mjs
 
 The script deletes and rebuilds each `demo/<repo>/` directory, so edit the content in `src/`, not in the generated files. When OpenSpec changes its format, run it with the new version, read the `validate` output, and adjust `lib.mjs` if the artifact layout moved. Commit the regenerated output together with the version bump in `generate.mjs`.
 
-Dates are fixed in the scenario (August to November 2026). Idea cards show relative times ("3d ago") that age as time passes; edit the `createdAt` values in `src/*.mjs` before taking new screenshots.
+Dates are fixed in the scenario (August to November 2026). Idea cards show relative times ("3d ago"); the static live demo shifts every recorded timestamp when it loads so the newest is about a day old. When serving this workspace with a real server, edit the `createdAt` values in `src/*.mjs` before taking new screenshots.
 
 `screenshots/` holds a reference capture of the board served from this workspace.
+
+## Static live demo (GitHub Pages)
+
+The same workspace feeds a build of the real UI that needs no server: `scripts/demo-snapshot.mjs` starts the backend against `demo/` and records every API response into one JSON file, and `vite build --mode demo` reads that instead of the API (ideas can be created, edited and deleted in memory; sources are read-only).
+
+```sh
+cd backend && cargo build && cd ../frontend && npm ci
+npm run snapshot:demo      # record demo/ (after changing demo/ or the API)
+npm run build:demo         # -> frontend/dist-demo/, base path /openspec-ui/ (DEMO_BASE overrides)
+npm run preview:demo       # http://localhost:4173/openspec-ui/
+```
+
+`.github/workflows/pages.yml` does this on every push to `main` that touches the backend, frontend or `demo/`.

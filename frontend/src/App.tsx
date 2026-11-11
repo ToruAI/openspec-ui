@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Header } from './components/Header';
 import { KanbanBoard } from './components/KanbanBoard';
 import { PlanningNotices } from './components/PlanningNotices';
@@ -12,6 +12,11 @@ import { useSSE, useChanges, useSpecs, useSources, useIdeas, useServerInfo } fro
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { Change, Idea } from './types';
 import './App.css';
+
+// Only the static live demo has a banner; the normal build never loads this module.
+const DemoBanner = __DEMO__
+  ? lazy(() => import('./demo/DemoBanner').then((m) => ({ default: m.DemoBanner })))
+  : null;
 
 type View = 'kanban' | 'specs';
 
@@ -95,6 +100,11 @@ function App() {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-background overflow-x-hidden max-w-full">
+        {DemoBanner && (
+          <Suspense fallback={null}>
+            <DemoBanner />
+          </Suspense>
+        )}
         <Header
           currentView={currentView}
           onViewChange={setCurrentView}

@@ -1,7 +1,7 @@
 {
   "name": "openspec-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.0-dev",
   "type": "module",
   "author": "ToruGuy",
   "repository": "https://github.com/ToruAI/openspec-ui",
@@ -12,7 +12,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "snapshot:demo": "node ../scripts/demo-snapshot.mjs",
+    "build:demo": "node ../scripts/build-demo.mjs",
+    "preview:demo": "vite preview --mode demo"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

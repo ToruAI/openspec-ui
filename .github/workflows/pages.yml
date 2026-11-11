@@ -1,0 +1,83 @@
+name: Live demo (GitHub Pages)
+
+# Builds the real UI against a recorded snapshot of demo/ and publishes it at
+# https://<owner>.github.io/<repo>/. Never runs for pull requests.
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend/**
+      - frontend/**
+      - demo/**
+      - scripts/demo-snapshot.mjs
+      - scripts/build-demo.mjs
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # The backend embeds frontend/dist at compile time, so the regular build comes first.
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Build backend
+        working-directory: backend
+        run: cargo build
+
+      - name: Record the demo workspace
+        run: node scripts/demo-snapshot.mjs
+
+      - name: Build the demo
+        working-directory: frontend
+        env:
+          DEMO_BASE: /${{ github.event.repository.name }}/
+        run: npm run build:demo
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: frontend/dist-demo
+
+  deploy:
+    # workflow_dispatch can be started from any branch; only main may publish.
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
