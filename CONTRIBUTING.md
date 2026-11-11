@@ -4,10 +4,10 @@ Bug reports, OpenSpec layouts the board reads wrong, and pull requests are welco
 
 ## Dev loop
 
-Needs Rust (stable) and Node.js 18+.
+Needs Rust (stable) and Node.js 20.19+.
 
 ```sh
-npm ci && (cd frontend && npm ci)
+npm ci && (cd frontend && npm ci && npm run build)   # once: the backend embeds frontend/dist
 npm run dev          # backend on the demo/ workspace at :3100, Vite dev server at :5173
 ```
 

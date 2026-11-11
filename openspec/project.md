@@ -28,7 +28,7 @@ openspec-ui/
 
 ## Running
 ```bash
-npm ci && (cd frontend && npm ci)
+npm ci && (cd frontend && npm ci && npm run build)   # backend embeds frontend/dist
 npm run dev                         # backend on demo/ at :3100, Vite dev server
 cd backend && cargo test            # includes the conformance check
 openspec-ui ~/code                  # installed binary: board for every repo under ~/code

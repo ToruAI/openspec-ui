@@ -50,7 +50,7 @@ The install script puts `openspec-ui` in `~/.local/bin`, verifies it against `SH
 
 ### Build from source
 
-Needs Rust (stable) and Node.js 18+.
+Needs Rust (stable) and Node.js 20.19+.
 
 ```sh
 git clone https://github.com/ToruAI/openspec-ui && cd openspec-ui
@@ -116,7 +116,7 @@ OpenSpec UI is an independent community project. It is not affiliated with or en
 ## Contributing
 
 ```sh
-npm ci && (cd frontend && npm ci)
+npm ci && (cd frontend && npm ci && npm run build)
 npm run dev                          # backend on the demo/ workspace + Vite dev server
 cd backend && cargo test             # includes the OpenSpec conformance check
 ```
