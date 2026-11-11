@@ -715,8 +715,15 @@ async fn run(args: Args) -> Result<(), String> {
         roots: roots.clone(),
     };
 
-    let (port, explicit_port) = cli::choose_port(args.port, config_port);
-    let (listener, skipped_ports) = match startup::bind(ip, port, explicit_port, &scope).await? {
+    let (port, port_origin) = cli::choose_port(args.port, config_port);
+    let requested_by = port_origin.map(|o| match o {
+        cli::PortOrigin::FlagOrEnv => "--port or the PORT variable".to_string(),
+        cli::PortOrigin::ConfigFile => format!(
+            "\"port\" in {}",
+            config_path.as_deref().unwrap_or(cli::CONFIG_FILE_NAME)
+        ),
+    });
+    let (listener, skipped_ports) = match startup::bind(ip, port, requested_by.as_deref(), &scope).await? {
         Bound::Reused(mut info) => {
             info.reused = true;
             if args.json {
@@ -785,7 +792,7 @@ async fn run(args: Args) -> Result<(), String> {
             }
             if found.worktrees_skipped > 0 {
                 notes.push(format!(
-                    "Skipped {} git worktree(s) of repos already listed.",
+                    "Skipped {} linked git worktree(s); pass one as a PATH to include it.",
                     found.worktrees_skipped
                 ));
             }
@@ -864,8 +871,8 @@ async fn run(args: Args) -> Result<(), String> {
     if args.json {
         print_stdout(&format!("{}\n", serde_json::to_string(&announced).unwrap_or_default()));
     } else {
-        let lan_url = ip
-            .is_unspecified()
+        // Inside a container the address is the container's, not the host's.
+        let lan_url = (ip.is_unspecified() && !startup::in_container())
             .then(startup::lan_ip)
             .flatten()
             .map(|lan| startup::local_url(lan, port));

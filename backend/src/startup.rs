@@ -132,11 +132,14 @@ pub enum Bound {
     Reused(Info),
 }
 
-fn bind_error(e: &io::Error, ip: IpAddr, port: u16) -> String {
+fn bind_error(e: &io::Error, ip: IpAddr, port: u16, requested_by: Option<&str>) -> String {
     match e.kind() {
-        io::ErrorKind::AddrInUse => format!(
-            "Port {port} is already in use. Choose another with --port, or leave --port/PORT unset to pick a free one automatically."
-        ),
+        io::ErrorKind::AddrInUse => match requested_by {
+            Some(origin) => format!(
+                "Port {port} is already in use (requested by {origin}). Pick another port, or drop that setting to let openspec-ui choose a free one."
+            ),
+            None => format!("Port {port} is already in use. Pick another one with --port."),
+        },
         io::ErrorKind::PermissionDenied => format!(
             "Not allowed to listen on port {port} (ports below 1024 usually need admin rights). Try --port 3000."
         ),
@@ -147,10 +150,17 @@ fn bind_error(e: &io::Error, ip: IpAddr, port: u16) -> String {
     }
 }
 
-/// Bind `ip:port`. An explicit port is used or fails with a readable error;
-/// otherwise up to [`PORT_ATTEMPTS`] following ports are tried. A port held
-/// by an openspec-ui with the same scope is reused instead of skipped.
-pub async fn bind(ip: IpAddr, port: u16, explicit: bool, scope: &Scope) -> Result<Bound, String> {
+/// Bind `ip:port`. A port the user asked for (`requested_by` names where:
+/// "--port / PORT" or the config file) is used or fails with a readable
+/// error; otherwise up to [`PORT_ATTEMPTS`] following ports are tried. A port
+/// held by an openspec-ui with the same scope is reused instead of skipped.
+pub async fn bind(
+    ip: IpAddr,
+    port: u16,
+    requested_by: Option<&str>,
+    scope: &Scope,
+) -> Result<Bound, String> {
+    let explicit = requested_by.is_some();
     let candidates: Vec<u16> = if explicit || port == 0 {
         vec![port]
     } else {
@@ -175,7 +185,7 @@ pub async fn bind(ip: IpAddr, port: u16, explicit: bool, scope: &Scope) -> Resul
                     tracing::info!("port {p} is used by another openspec-ui ({:?})", info.roots);
                 }
                 if explicit {
-                    return Err(bind_error(&io::ErrorKind::AddrInUse.into(), ip, p));
+                    return Err(bind_error(&io::ErrorKind::AddrInUse.into(), ip, p, requested_by));
                 }
                 skipped.push(p);
                 continue;
@@ -184,7 +194,7 @@ pub async fn bind(ip: IpAddr, port: u16, explicit: bool, scope: &Scope) -> Resul
         match TcpListener::bind(SocketAddr::new(ip, p)).await {
             Ok(listener) => return Ok(Bound::Listening { listener, skipped }),
             Err(e) if e.kind() == io::ErrorKind::AddrInUse && !explicit => skipped.push(p),
-            Err(e) => return Err(bind_error(&e, ip, p)),
+            Err(e) => return Err(bind_error(&e, ip, p, requested_by)),
         }
     }
 
@@ -390,11 +400,11 @@ mod tests {
     async fn explicit_port_in_use_is_a_readable_error() {
         let squatter = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = squatter.local_addr().unwrap().port();
-        let err = bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, true, &scope())
+        let err = bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, Some("--port"), &scope())
             .await
             .err()
             .expect("must fail");
-        assert!(err.contains(&format!("Port {port} is already in use")), "{err}");
+        assert!(err.contains(&format!("Port {port} is already in use (requested by --port)")), "{err}");
     }
 
     #[tokio::test]
@@ -407,7 +417,7 @@ mod tests {
                 break (l, p);
             }
         };
-        match bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, false, &scope()).await.unwrap() {
+        match bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, None, &scope()).await.unwrap() {
             Bound::Listening { listener, skipped } => {
                 assert!(listener.local_addr().unwrap().port() > port);
                 assert_eq!(skipped.first(), Some(&port));
@@ -423,7 +433,7 @@ mod tests {
         // but we must still treat the port as taken.
         let squatter = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
         let port = squatter.local_addr().unwrap().port();
-        let err = bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, true, &scope()).await.err();
+        let err = bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, Some("--port"), &scope()).await.err();
         assert!(err.is_some());
     }
 
@@ -431,14 +441,14 @@ mod tests {
     async fn same_scope_server_is_reused_other_scope_is_skipped() {
         let s = scope();
         let port = fake_openspec_ui(info_for(&s, 0)).await;
-        match bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, false, &s).await.unwrap() {
+        match bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, None, &s).await.unwrap() {
             Bound::Reused(info) => assert_eq!(info.port, port),
             Bound::Listening { .. } => panic!("should reuse"),
         }
 
         let mut other = s.clone();
         other.roots = vec!["/elsewhere".into()];
-        match bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, false, &other).await.unwrap() {
+        match bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, None, &other).await.unwrap() {
             Bound::Listening { listener, .. } => assert_ne!(listener.local_addr().unwrap().port(), port),
             Bound::Reused(_) => panic!("different roots must not be reused"),
         }

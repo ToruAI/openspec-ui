@@ -1,7 +1,7 @@
 //! Command line interface and the precedence rules behind it.
 
 use crate::discovery::DEFAULT_DEPTH;
-use clap::{ArgAction, Parser};
+use clap::{builder::BoolishValueParser, ArgAction, Parser};
 use std::path::{Path, PathBuf};
 
 pub const VERSION: &str = env!("OPENSPEC_UI_VERSION");
@@ -69,7 +69,12 @@ pub struct Args {
     pub depth: usize,
 
     /// Do not open the browser (it only opens in an interactive terminal anyway)
-    #[arg(long, env = "OPENSPEC_UI_NO_OPEN")]
+    #[arg(
+        long,
+        env = "OPENSPEC_UI_NO_OPEN",
+        action = ArgAction::SetTrue,
+        value_parser = BoolishValueParser::new()
+    )]
     pub no_open: bool,
 
     /// Print a single JSON line instead of the banner; never opens the browser
@@ -142,13 +147,22 @@ pub fn choose_sources(
     }
 }
 
-/// The port to try first, and whether the user asked for it (an explicit port
-/// is never silently replaced). Precedence: --port / $PORT, then the config
-/// file's "port", then 3000. Port 0 lets the OS pick.
-pub fn choose_port(cli_or_env: Option<u16>, config_file: Option<u16>) -> (u16, bool) {
-    match cli_or_env.or(config_file) {
-        Some(p) => (p, true),
-        None => (DEFAULT_PORT, false),
+/// Where an explicitly requested port came from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PortOrigin {
+    FlagOrEnv,
+    ConfigFile,
+}
+
+/// The port to try first, and who asked for it (`None` = the default, which
+/// may move to the next free port; an explicit port is never silently
+/// replaced). Precedence: --port / $PORT, then the config file's "port",
+/// then 3000. Port 0 lets the OS pick.
+pub fn choose_port(cli_or_env: Option<u16>, config_file: Option<u16>) -> (u16, Option<PortOrigin>) {
+    match (cli_or_env, config_file) {
+        (Some(p), _) => (p, Some(PortOrigin::FlagOrEnv)),
+        (None, Some(p)) => (p, Some(PortOrigin::ConfigFile)),
+        (None, None) => (DEFAULT_PORT, None),
     }
 }
 
@@ -169,6 +183,19 @@ mod tests {
     #[test]
     fn cli_definition_is_valid() {
         Args::command().debug_assert();
+    }
+
+    #[test]
+    fn no_open_accepts_the_usual_env_spellings() {
+        // Only this test touches OPENSPEC_UI_NO_OPEN.
+        for (value, expected) in [("1", true), ("true", true), ("yes", true), ("0", false), ("false", false)] {
+            std::env::set_var("OPENSPEC_UI_NO_OPEN", value);
+            let args = Args::try_parse_from(["openspec-ui"]).unwrap();
+            assert_eq!(args.no_open, expected, "OPENSPEC_UI_NO_OPEN={value}");
+        }
+        std::env::remove_var("OPENSPEC_UI_NO_OPEN");
+        assert!(Args::try_parse_from(["openspec-ui", "--no-open"]).unwrap().no_open);
+        assert!(!Args::try_parse_from(["openspec-ui"]).unwrap().no_open);
     }
 
     #[test]
@@ -219,9 +246,9 @@ mod tests {
 
     #[test]
     fn port_precedence() {
-        assert_eq!(choose_port(Some(4000), Some(5000)), (4000, true));
-        assert_eq!(choose_port(None, Some(5000)), (5000, true));
-        assert_eq!(choose_port(None, None), (DEFAULT_PORT, false));
-        assert_eq!(choose_port(Some(0), None), (0, true));
+        assert_eq!(choose_port(Some(4000), Some(5000)), (4000, Some(PortOrigin::FlagOrEnv)));
+        assert_eq!(choose_port(None, Some(5000)), (5000, Some(PortOrigin::ConfigFile)));
+        assert_eq!(choose_port(None, None), (DEFAULT_PORT, None));
+        assert_eq!(choose_port(Some(0), None), (0, Some(PortOrigin::FlagOrEnv)));
     }
 }
