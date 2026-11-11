@@ -142,6 +142,7 @@ function App() {
           onOpenNewIdea={() => setIdeaCaptureOpen(true)}
           version={serverInfo?.version}
           changelogUrl={serverInfo?.changelog}
+          network={serverInfo ? { lanUrl: serverInfo.lanUrl, host: serverInfo.host ?? '', port: serverInfo.port } : undefined}
         />
         <main className={fullHeight ? 'flex min-h-0 flex-1 flex-col px-6 pt-4' : 'px-4 pt-3'}>
           {currentView === 'kanban' ? (

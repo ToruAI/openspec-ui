@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import type { Source } from '../types';
 import { BrandMark, BrandName, GitHubIcon } from './Brand';
+import { PhoneAccess } from './PhoneAccess';
 import { OPENSPEC_URL, REPO_URL } from '@/lib/links';
 
 type View = 'kanban' | 'specs';
@@ -25,6 +26,8 @@ interface HeaderProps {
   /** Running server version, shown as a badge linking to the changelog */
   version?: string;
   changelogUrl?: string;
+  /** Where the server listens, for the "open on your phone" hint; omitted until known */
+  network?: { lanUrl?: string | null; host: string; port: number };
 }
 
 const DEFAULT_CHANGELOG_URL = 'https://github.com/ToruAI/openspec-ui/blob/main/CHANGELOG.md';
@@ -126,6 +129,7 @@ export function Header({
   onOpenNewIdea,
   version,
   changelogUrl = DEFAULT_CHANGELOG_URL,
+  network,
 }: HeaderProps) {
   const { theme, toggle } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -213,6 +217,7 @@ export function Header({
               <Star className="h-3.5 w-3.5" aria-hidden />
               <span>Star</span>
             </a>
+            {network && <PhoneAccess lanUrl={network.lanUrl} host={network.host} port={network.port} />}
             <Button
               variant="ghost"
               size="icon"
