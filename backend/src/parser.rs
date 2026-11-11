@@ -4,12 +4,14 @@
 //! Change state follows OpenSpec 1.17 semantics (see `workflow`), checked
 //! against the real CLI by the conformance test (`conformance`).
 
+mod contain;
 mod summary;
 mod tasks;
 mod workflow;
 #[cfg(test)]
 mod conformance;
 
+use contain::Root;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -168,6 +170,9 @@ pub struct Idea {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IdeaFrontmatter {
+    /// Required for a file to count as an idea, but never trusted: the id
+    /// is the file name (see [`is_safe_idea_id`]).
+    #[allow(dead_code)]
     id: String,
     #[serde(default)]
     project_id: Option<String>,
@@ -289,20 +294,39 @@ fn is_active_change_name(name: &str) -> bool {
     name != "archive" && !name.starts_with('.')
 }
 
+/// One source's OpenSpec directory and where its schemas resolve from.
+struct SourceScan {
+    dir: PathBuf,
+    /// Canonical `dir`: every file read for this source must stay under it.
+    root: Root,
+    schemas: workflow::SchemaDirs,
+}
+
+impl SourceScan {
+    fn new(source_path: &Path, options: &ScanOptions) -> Option<SourceScan> {
+        let root = Root::new(source_path)?;
+        Some(SourceScan {
+            dir: source_path.to_path_buf(),
+            schemas: workflow::SchemaDirs::new(&root, options.global_data_dir.as_deref()),
+            root,
+        })
+    }
+}
+
 fn scan_change(
     change_path: &Path,
-    openspec_dir: &Path,
+    scan: &SourceScan,
     source_id: &str,
     is_archived: bool,
-    schemas: &workflow::SchemaDirs,
 ) -> Option<(Change, Vec<PathBuf>)> {
     let name = change_path.file_name()?.to_str()?.to_string();
-    let analysis = workflow::analyze_change(change_path, openspec_dir, schemas);
+    let (openspec_dir, schemas, root) = (scan.dir.as_path(), &scan.schemas, &scan.root);
+    let analysis = workflow::analyze_change(change_path, openspec_dir, schemas, root);
 
     let nested = if is_archived {
         Vec::new()
     } else {
-        workflow::find_nested_changes(change_path, &name, openspec_dir, schemas)
+        workflow::find_nested_changes(change_path, &name, openspec_dir, schemas, root)
     };
     let (error, artifacts, is_planning_complete, apply_requires) = if nested.is_empty() {
         (analysis.error, analysis.artifacts, analysis.is_planning_complete, analysis.apply_requires)
@@ -318,7 +342,7 @@ fn scan_change(
         )
     };
 
-    let summary::ChangeSummary { title, summary } = summary::summarize(change_path);
+    let summary::ChangeSummary { title, summary } = summary::summarize(change_path, root);
     let change = Change {
         id: format!("{}/{}", source_id, name),
         name,
@@ -326,10 +350,10 @@ fn scan_change(
         status: compute_status(analysis.task_stats.as_ref(), is_archived),
         title,
         summary,
-        has_proposal: change_path.join("proposal.md").is_file(),
-        has_specs: !workflow::resolve_outputs(change_path, "specs/**/*.md").is_empty(),
+        has_proposal: root.file(&change_path.join("proposal.md")).is_some(),
+        has_specs: !workflow::resolve_outputs(change_path, "specs/**/*.md", root).is_empty(),
         has_tasks: !analysis.task_files.is_empty(),
-        has_design: change_path.join("design.md").is_file(),
+        has_design: root.file(&change_path.join("design.md")).is_some(),
         task_stats: analysis.task_stats,
         schema: analysis.schema,
         artifacts,
@@ -347,19 +371,21 @@ pub fn scan_changes(source_path: &Path, source_id: &str) -> Vec<Change> {
 }
 
 pub fn scan_changes_with(source_path: &Path, source_id: &str, options: &ScanOptions) -> Vec<Change> {
-    let schemas = workflow::SchemaDirs::new(source_path, options.global_data_dir.as_deref());
+    let Some(scan) = SourceScan::new(source_path, options) else {
+        return Vec::new();
+    };
     let changes_path = source_path.join("changes");
     let mut changes = Vec::new();
 
     for name in child_dirs(&changes_path).into_iter().filter(|n| is_active_change_name(n)) {
-        if let Some((change, _)) = scan_change(&changes_path.join(&name), source_path, source_id, false, &schemas) {
+        if let Some((change, _)) = scan_change(&changes_path.join(&name), &scan, source_id, false) {
             changes.push(change);
         }
     }
 
     let archive_path = changes_path.join("archive");
     for name in child_dirs(&archive_path).into_iter().filter(|n| !n.starts_with('.')) {
-        if let Some((change, _)) = scan_change(&archive_path.join(&name), source_path, source_id, true, &schemas) {
+        if let Some((change, _)) = scan_change(&archive_path.join(&name), &scan, source_id, true) {
             changes.push(change);
         }
     }
@@ -386,6 +412,8 @@ pub fn get_change_detail_with(
         return None;
     }
 
+    let scan = SourceScan::new(source_path, options)?;
+    let root = &scan.root;
     let changes_path = source_path.join("changes");
     let mut change_path = changes_path.join(change_name);
     let mut is_archived = false;
@@ -399,29 +427,28 @@ pub fn get_change_detail_with(
         change_path = archive_path.join(found?);
         is_archived = true;
     }
+    // The list never shows a change folder that is a symlink; one pointing
+    // out of the source must not open by URL either.
+    if !change_path.symlink_metadata().is_ok_and(|m| m.is_dir()) || root.contain(&change_path).is_none() {
+        return None;
+    }
 
-    let (change, task_files) = scan_change(
-        &change_path,
-        source_path,
-        source_id,
-        is_archived,
-        &workflow::SchemaDirs::new(source_path, options.global_data_dir.as_deref()),
-    )?;
+    let (change, task_files) = scan_change(&change_path, &scan, source_id, is_archived)?;
 
-    let read = |p: PathBuf| std::fs::read_to_string(p).ok();
+    let read = |p: PathBuf| root.read(&p);
     let tasks = (!task_files.is_empty()).then(|| {
         let raw = task_files
             .iter()
-            .filter_map(|f| std::fs::read_to_string(f).ok())
+            .filter_map(|f| root.read(f))
             .collect::<Vec<_>>()
             .join("\n\n");
         TasksContent { stats: change.task_stats.clone().unwrap_or(TaskStats { total: 0, done: 0 }), raw }
     });
 
-    let specs = workflow::resolve_outputs(&change_path, "specs/**/*.md")
+    let specs = workflow::resolve_outputs(&change_path, "specs/**/*.md", root)
         .into_iter()
         .filter_map(|p| {
-            let content = std::fs::read_to_string(&p).ok()?;
+            let content = root.read(&p)?;
             Some(SpecContent { path: relative_display(&p, &change_path.join("specs")), content })
         })
         .collect();
@@ -432,10 +459,10 @@ pub fn get_change_detail_with(
         .filter(|a| matches!(a.status, ArtifactStatus::Done))
         .map(|a| ArtifactDocument {
             artifact_id: a.id.clone(),
-            files: workflow::resolve_outputs(&change_path, &a.output_path)
+            files: workflow::resolve_outputs(&change_path, &a.output_path, root)
                 .into_iter()
                 .filter_map(|p| {
-                    let content = std::fs::read_to_string(&p).ok()?;
+                    let content = root.read(&p)?;
                     Some(SpecContent { path: relative_display(&p, &change_path), content })
                 })
                 .collect(),
@@ -493,8 +520,10 @@ pub struct PlanningRoot {
     pub problem: Option<String>,
 }
 
-fn yaml_string_field(path: &Path, key: &str) -> Result<Option<String>, ()> {
-    let Ok(content) = std::fs::read_to_string(path) else {
+/// A string field of a YAML file that stays inside `root` (a file outside
+/// it counts as absent).
+fn yaml_string_field(root: Option<&Root>, path: &Path, key: &str) -> Result<Option<String>, ()> {
+    let Some(content) = root.and_then(|r| r.read(path)) else {
         return Ok(None);
     };
     let value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|_| ())?;
@@ -516,7 +545,7 @@ pub fn inspect_planning_root(source_path: &Path, options: &ScanOptions) -> Plann
     if identity.is_file() {
         return PlanningRoot {
             kind: PlanningKind::Store,
-            store_id: yaml_string_field(&identity, "id").ok().flatten(),
+            store_id: yaml_string_field(Root::new(parent).as_ref(), &identity, "id").ok().flatten(),
             ..local
         };
     }
@@ -532,7 +561,7 @@ pub fn inspect_planning_root(source_path: &Path, options: &ScanOptions) -> Plann
     let Some(config) = ["config.yaml", "config.yml"].iter().map(|f| source_path.join(f)).find(|p| p.exists()) else {
         return local;
     };
-    let store_id = match yaml_string_field(&config, "store") {
+    let store_id = match yaml_string_field(Root::new(source_path).as_ref(), &config, "store") {
         Ok(Some(id)) => id,
         Ok(None) => return local,
         Err(()) => {
@@ -566,15 +595,19 @@ pub fn inspect_planning_root(source_path: &Path, options: &ScanOptions) -> Plann
 }
 
 
-/// Scan specs/ directory for source-of-truth specs
+/// Scan specs/ directory for source-of-truth specs. Lists exactly the files
+/// [`get_spec_detail`] opens: `*.md` directly in the OpenSpec directory, and
+/// `*.md` under `specs/`, each staying inside the source.
 pub fn scan_specs(source_path: &Path, source_id: &str) -> Vec<Spec> {
     let mut specs = Vec::new();
-    let specs_path = source_path.join("specs");
+    let Some(root) = Root::new(source_path) else {
+        return specs;
+    };
 
     // Include root-level markdown files
     for entry in std::fs::read_dir(source_path).into_iter().flatten().flatten() {
         let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|e| e == "md") {
+        if root.file(&path).is_some() && path.extension().is_some_and(|e| e == "md") {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             // Skip common change files and changes directory
             if name != "proposal.md" && name != "tasks.md" && name != "design.md" && name != "changes" {
@@ -588,13 +621,14 @@ pub fn scan_specs(source_path: &Path, source_id: &str) -> Vec<Spec> {
         }
     }
 
-    // Scan specs/ directory
-    if specs_path.exists() {
+    // Scan specs/ directory (directory symlinks are not followed)
+    let specs_path = source_path.join("specs");
+    if root.sub("specs").is_some() {
         for entry in WalkDir::new(&specs_path).min_depth(1).into_iter().flatten() {
             let path = entry.path();
-            if path.is_file() && path.extension().is_some_and(|e| e == "md") {
+            if root.file(path).is_some() && path.extension().is_some_and(|e| e == "md") {
                 let relative = path.strip_prefix(&specs_path).unwrap_or(path);
-                let path_str = relative.display().to_string();
+                let path_str = relative.to_string_lossy().replace('\\', "/");
                 let id = format!("{}/{}", source_id, path_str.replace("/spec.md", "").replace(".md", ""));
                 specs.push(Spec {
                     id,
@@ -608,56 +642,128 @@ pub fn scan_specs(source_path: &Path, source_id: &str) -> Vec<Spec> {
     specs
 }
 
-/// Get content for a specific spec
-pub fn get_spec_detail(source_path: &Path, source_id: &str, spec_path: &str) -> Option<SpecDetail> {
-    // First try root-level file
-    let mut full_path = source_path.join(spec_path);
-
-    if !full_path.exists() {
-        // Then try specs/ directory
-        full_path = source_path.join("specs").join(spec_path);
-        if !full_path.exists() {
-            return None;
-        }
+/// Content of the spec `name` (the part of a spec id after the source):
+/// `<name>/spec.md`, `<name>.md` or `<name>` under `specs/`, or a single
+/// `<name>.md` directly in the OpenSpec directory. Only `.md` files inside
+/// the source are returned; `..`, absolute paths and empty segments never
+/// resolve.
+pub fn get_spec_detail(source_path: &Path, source_id: &str, name: &str) -> Option<SpecDetail> {
+    if !contain::is_plain_relative(name) {
+        return None;
     }
+    let root = Root::new(source_path)?;
+    let specs = root.sub("specs");
 
-    let content = std::fs::read_to_string(&full_path).ok()?;
-    let id = format!("{}/{}", source_id, spec_path.replace("/spec.md", "").replace(".md", ""));
-
-    Some(SpecDetail {
-        id,
-        source_id: source_id.to_string(),
-        path: spec_path.to_string(),
-        content,
-    })
+    for candidate in [format!("{name}/spec.md"), format!("{name}.md"), name.to_string()] {
+        if !candidate.ends_with(".md") {
+            continue;
+        }
+        let at_root = (!candidate.contains('/')).then(|| root.join(&candidate)).flatten();
+        let found = at_root
+            .filter(|p| p.is_file())
+            .or_else(|| specs.as_ref()?.join(&candidate).filter(|p| p.is_file()));
+        let Some(path) = found else { continue };
+        let content = std::fs::read_to_string(&path).ok()?;
+        return Some(SpecDetail {
+            id: format!("{}/{}", source_id, candidate.replace("/spec.md", "").replace(".md", "")),
+            source_id: source_id.to_string(),
+            path: candidate,
+            content,
+        });
+    }
+    None
 }
 
-/// Scan ideas/ directory for all ideas
+// ---------------------------------------------------------------------------
+// Ideas
+// ---------------------------------------------------------------------------
+
+/// Idea ids are file names in `ideas/` (without `.md`): letters, digits,
+/// `-`, `_` and `.`, not starting with a dot, at most 128 characters. They
+/// arrive in URLs and, through the UI, from repo files, so nothing else is
+/// ever joined to a path.
+pub fn is_safe_idea_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && !id.starts_with('.')
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+fn invalid_input(message: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, message.to_string())
+}
+
+/// The source's `ideas/` folder, which must stay inside the source.
+/// `NotFound` when there is none yet (and `create` is false).
+fn ideas_root(source_path: &Path, create: bool) -> std::io::Result<Root> {
+    let not_found = || std::io::Error::new(std::io::ErrorKind::NotFound, "Idea not found");
+    let source = Root::new(source_path).ok_or_else(not_found)?;
+    let dir = source.path().join("ideas");
+    if dir.symlink_metadata().is_err() {
+        if !create {
+            return Err(not_found());
+        }
+        std::fs::create_dir(&dir)?;
+    }
+    source
+        .sub("ideas")
+        .ok_or_else(|| invalid_input("The ideas folder is not a folder inside the source"))
+}
+
+/// Path of an idea file. Refuses unsafe ids, and anything at that path
+/// that is not a regular file (a symlink is never read, written or deleted).
+fn idea_path(ideas: &Root, id: &str) -> std::io::Result<PathBuf> {
+    if !is_safe_idea_id(id) {
+        return Err(invalid_input("Invalid idea id"));
+    }
+    let path = ideas.path().join(format!("{id}.md"));
+    match path.symlink_metadata() {
+        Ok(meta) if !meta.file_type().is_file() => Err(invalid_input("Not an idea file")),
+        _ => Ok(path),
+    }
+}
+
+/// Frontmatter and body of an idea file. `id` is the file name.
+fn idea_content(id: &str, project_id: Option<&str>, created_at: &str, updated_at: &str, title: &str, description: &str) -> String {
+    // A value with a line break would add keys to the frontmatter.
+    let project_id_line = match project_id.filter(|p| !p.contains(['\n', '\r'])) {
+        Some(pid) => format!("projectId: {pid}"),
+        None => String::new(),
+    };
+    format!(
+        "---\nid: {id}\n{project_id_line}\ncreatedAt: {created_at}\nupdatedAt: {updated_at}\n---\n\n# {title}\n\n{description}\n"
+    )
+}
+
+/// Scan ideas/ directory for all ideas. An idea's id is its file name;
+/// the `id` in its frontmatter is not used. Files with an unsafe name and
+/// symlinks are skipped.
 pub fn scan_ideas(source_path: &Path, source_id: &str) -> Vec<Idea> {
     let mut ideas = Vec::new();
-    let ideas_path = source_path.join("ideas");
-
-    if !ideas_path.exists() || !ideas_path.is_dir() {
+    let Ok(ideas_dir) = ideas_root(source_path, false) else {
         return ideas;
-    }
+    };
 
-    for entry in std::fs::read_dir(&ideas_path).into_iter().flatten().flatten() {
+    for entry in std::fs::read_dir(ideas_dir.path()).into_iter().flatten().flatten() {
         let path = entry.path();
-        
-        if path.is_file() && path.extension().is_some_and(|e| e == "md") {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Some(frontmatter) = parse_idea_frontmatter(&content) {
-                    let (title, description) = extract_idea_title_and_description(&content);
-                    ideas.push(Idea {
-                        id: format!("{}/{}", source_id, frontmatter.id),
-                        source_id: source_id.to_string(),
-                        project_id: frontmatter.project_id,
-                        title,
-                        description,
-                        created_at: frontmatter.created_at,
-                        updated_at: frontmatter.updated_at,
-                    });
-                }
+        if !entry.file_type().is_ok_and(|t| t.is_file()) || path.extension().is_none_or(|e| e != "md") {
+            continue;
+        }
+        let Some(id) = path.file_stem().and_then(|s| s.to_str()).filter(|s| is_safe_idea_id(s)) else {
+            continue;
+        };
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Some(frontmatter) = parse_idea_frontmatter(&content) {
+                let (title, description) = extract_idea_title_and_description(&content);
+                ideas.push(Idea {
+                    id: format!("{}/{}", source_id, id),
+                    source_id: source_id.to_string(),
+                    project_id: frontmatter.project_id,
+                    title,
+                    description,
+                    created_at: frontmatter.created_at,
+                    updated_at: frontmatter.updated_at,
+                });
             }
         }
     }
@@ -666,39 +772,18 @@ pub fn scan_ideas(source_path: &Path, source_id: &str) -> Vec<Idea> {
     ideas
 }
 
-/// Save idea to file system
+/// Save a new idea. Never overwrites an existing file.
 pub fn save_idea(source_path: &Path, source_id: &str, id: &str, title: &str, description: &str, project_id: Option<&str>) -> std::io::Result<Idea> {
-    let ideas_path = source_path.join("ideas");
-    
-    if !ideas_path.exists() {
-        std::fs::create_dir_all(&ideas_path)?;
+    if !is_safe_idea_id(id) {
+        return Err(invalid_input("Invalid idea id"));
     }
-
+    let ideas = ideas_root(source_path, true)?;
+    let path = idea_path(&ideas, id)?;
     let now = chrono::Utc::now().to_rfc3339();
-    
-    let project_id_line = if let Some(pid) = project_id {
-        format!("projectId: {}", pid)
-    } else {
-        String::new()
-    };
-    
-    let content = format!(
-        r#"---
-id: {}
-{}
-createdAt: {}
-updatedAt: {}
----
+    let content = idea_content(id, project_id, &now, &now, title, description);
 
-# {}
-
-{}
-"#,
-        id, project_id_line, now, now, title, description
-    );
-
-    let idea_path = ideas_path.join(format!("{}.md", id));
-    std::fs::write(&idea_path, content)?;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path)?;
+    std::io::Write::write_all(&mut file, content.as_bytes())?;
 
     Ok(Idea {
         id: format!("{}/{}", source_id, id),
@@ -711,20 +796,30 @@ updatedAt: {}
     })
 }
 
-/// Delete idea from file system
+/// Delete idea from file system. A missing idea is not an error.
 pub fn delete_idea(source_path: &Path, id: &str) -> std::io::Result<()> {
-    let idea_path = source_path.join("ideas").join(format!("{}.md", id));
-
-    if idea_path.exists() {
-        std::fs::remove_file(idea_path)?;
+    if !is_safe_idea_id(id) {
+        return Err(invalid_input("Invalid idea id"));
     }
-
-    Ok(())
+    let ideas = match ideas_root(source_path, false) {
+        Ok(ideas) => ideas,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let path = idea_path(&ideas, id)?;
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
 }
 
-/// Update idea in file system
+/// Update idea in file system. The id written back is the file name.
 pub fn update_idea(source_path: &Path, source_id: &str, id: &str, title: &str, description: &str) -> std::io::Result<Idea> {
-    let idea_path = source_path.join("ideas").join(format!("{}.md", id));
+    if !is_safe_idea_id(id) {
+        return Err(invalid_input("Invalid idea id"));
+    }
+    let ideas = ideas_root(source_path, false)?;
+    let idea_path = idea_path(&ideas, id)?;
 
     if !idea_path.exists() {
         return Err(std::io::Error::new(
@@ -742,28 +837,7 @@ pub fn update_idea(source_path: &Path, source_id: &str, id: &str, title: &str, d
     })?;
 
     let now = chrono::Utc::now().to_rfc3339();
-
-    let project_id_line = if let Some(ref pid) = frontmatter.project_id {
-        format!("projectId: {}", pid)
-    } else {
-        String::new()
-    };
-
-    let content = format!(
-        r#"---
-id: {}
-{}
-createdAt: {}
-updatedAt: {}
----
-
-# {}
-
-{}
-"#,
-        id, project_id_line, frontmatter.created_at, now, title, description
-    );
-
+    let content = idea_content(id, frontmatter.project_id.as_deref(), &frontmatter.created_at, &now, title, description);
     std::fs::write(&idea_path, content)?;
 
     Ok(Idea {
@@ -776,7 +850,6 @@ updatedAt: {}
         updated_at: now,
     })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1004,6 +1077,270 @@ Description"#;
         assert_eq!(detail.specs[0].path, "auth/spec.md");
         assert_eq!(detail.tasks.unwrap().stats, TaskStats { total: 1, done: 1 });
         assert!(get_change_detail_with(&t.openspec(), "repo", "../c", &ScanOptions { global_data_dir: None }).is_none());
+    }
+
+    /// A file next to the temp OpenSpec dir, outside the source.
+    fn outside_file(t: &TempOpenSpec, name: &str, content: &str) -> PathBuf {
+        let dir = t.0.join("outside");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn spec_detail_refuses_paths_outside_the_source() {
+        let t = TempOpenSpec::new("spec-escape");
+        t.write("specs/auth/spec.md", "# Auth\n");
+        let secret = outside_file(&t, "secret.md", "SECRET\n");
+        let src = t.openspec();
+
+        let absolute = secret.to_string_lossy().to_string();
+        for name in [
+            "../outside/secret",
+            "../outside/secret.md",
+            "auth/../../outside/secret",
+            absolute.as_str(),
+            absolute.trim_end_matches(".md"),
+            "/etc/passwd",
+            "",
+            "auth//spec",
+            "./auth",
+            "config.yaml",
+        ] {
+            assert!(get_spec_detail(&src, "repo", name).is_none(), "{name:?} must not resolve");
+        }
+        assert_eq!(get_spec_detail(&src, "repo", "auth").unwrap().content, "# Auth\n");
+    }
+
+    #[test]
+    fn every_listed_spec_opens_by_its_id() {
+        let t = TempOpenSpec::new("spec-roundtrip");
+        t.write("project.md", "# Project\n");
+        t.write("specs/auth/spec.md", "# Auth\n");
+        t.write("specs/billing/invoices/spec.md", "# Invoices\n");
+        t.write("specs/flat.md", "# Flat\n");
+        let specs = scan_specs(&t.openspec(), "repo");
+        assert_eq!(specs.len(), 4);
+        for spec in specs {
+            let name = spec.id.strip_prefix("repo/").unwrap();
+            let detail = get_spec_detail(&t.openspec(), "repo", name)
+                .unwrap_or_else(|| panic!("{} is listed but does not open", spec.id));
+            assert_eq!(detail.id, spec.id);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_out_of_the_source_are_not_read() {
+        use std::os::unix::fs::symlink;
+        let t = TempOpenSpec::new("symlink-out");
+        let src = t.openspec();
+        let secret = outside_file(&t, "hosts.md", "## Why\n\nTOP-SECRET\n");
+        t.write("changes/c/tasks.md", "- [ ] a\n");
+        symlink(&secret, src.join("changes/c/proposal.md")).unwrap();
+        std::fs::create_dir_all(src.join("changes/c/specs")).unwrap();
+        symlink(secret.parent().unwrap(), src.join("changes/c/specs/out")).unwrap();
+        std::fs::create_dir_all(src.join("specs")).unwrap();
+        symlink(&secret, src.join("specs/leak.md")).unwrap();
+        // A change folder that is itself a symlink out of the source.
+        std::fs::create_dir_all(t.0.join("outside/elsewhere")).unwrap();
+        std::fs::write(t.0.join("outside/elsewhere/proposal.md"), "TOP-SECRET\n").unwrap();
+        symlink(t.0.join("outside/elsewhere"), src.join("changes/linked")).unwrap();
+
+        let options = ScanOptions { global_data_dir: None };
+        let change = t.change("c");
+        assert!(!change.has_proposal, "an out-of-source proposal does not exist");
+        assert!(!change.has_specs);
+        assert_eq!(change.summary, None);
+        assert_eq!(change.artifacts[0].status, ArtifactStatus::Ready);
+
+        let detail = get_change_detail_with(&src, "repo", "c", &options).unwrap();
+        let json = serde_json::to_string(&detail).unwrap();
+        assert!(!json.contains("TOP-SECRET"), "{json}");
+        assert!(detail.proposal.is_none());
+
+        assert!(get_change_detail_with(&src, "repo", "linked", &options).is_none());
+        assert!(get_spec_detail(&src, "repo", "leak").is_none());
+        assert!(scan_specs(&src, "repo").is_empty(), "out-of-source specs are not listed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_yaml_out_of_the_source_is_not_read() {
+        use std::os::unix::fs::symlink;
+        let t = TempOpenSpec::new("symlink-yaml");
+        let src = t.openspec();
+        let secret = outside_file(&t, "secret.txt", "TOP-SECRET-LINE\n");
+        let mapping = outside_file(&t, "secret.yaml", "schema: TOP-SECRET-SCHEMA\nstore: TOP-SECRET-STORE\nid: TOP-SECRET-ID\n");
+
+        // A project schema that is a symlink out of the source.
+        std::fs::create_dir_all(src.join("schemas/leak")).unwrap();
+        symlink(&secret, src.join("schemas/leak/schema.yaml")).unwrap();
+        t.write("changes/a/.openspec.yaml", "schema: leak\n");
+        t.write("changes/a/proposal.md", "# p\n");
+        // Change metadata that is a symlink out of the source.
+        t.write("changes/b/proposal.md", "# p\n");
+        symlink(&mapping, src.join("changes/b/.openspec.yaml")).unwrap();
+
+        let json = serde_json::to_string(&t.scan()).unwrap();
+        assert!(!json.contains("TOP-SECRET"), "{json}");
+        assert_eq!(t.change("b").schema.as_deref(), Some("spec-driven"), "outside metadata counts as absent");
+
+        // Project config and store identity pointing out of the source.
+        let t2 = TempOpenSpec::new("symlink-yaml-config");
+        let src2 = t2.openspec();
+        std::fs::remove_dir_all(src2.join("changes")).unwrap();
+        symlink(&mapping, src2.join("config.yaml")).unwrap();
+        let planning = inspect_planning_root(&src2, &ScanOptions { global_data_dir: None });
+        assert!(!format!("{planning:?}").contains("TOP-SECRET"), "{planning:?}");
+        std::fs::create_dir_all(t2.0.join(".openspec-store")).unwrap();
+        symlink(&mapping, t2.0.join(".openspec-store/store.yaml")).unwrap();
+        let planning = inspect_planning_root(&src2, &ScanOptions { global_data_dir: None });
+        assert!(!format!("{planning:?}").contains("TOP-SECRET"), "{planning:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_the_filesystem_root_is_not_walked() {
+        use std::os::unix::fs::symlink;
+        let t = TempOpenSpec::new("symlink-root");
+        let src = t.openspec();
+        t.write("changes/c/proposal.md", "# p\n");
+        std::fs::create_dir_all(src.join("changes/c/specs")).unwrap();
+        symlink("/", src.join("changes/c/specs/root")).unwrap();
+        let started = std::time::Instant::now();
+        let change = t.change("c");
+        assert!(!change.has_specs);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "walked outside the source");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_inside_the_source_and_a_symlinked_source_still_work() {
+        use std::os::unix::fs::symlink;
+        let t = TempOpenSpec::new("symlink-in");
+        let src = t.openspec();
+        t.write("shared/auth.md", "## ADDED Requirements\n");
+        t.write("changes/c/proposal.md", "# p\n\n## Why\n\nBecause.\n");
+        std::fs::create_dir_all(src.join("changes/c/specs/auth")).unwrap();
+        symlink(src.join("shared/auth.md"), src.join("changes/c/specs/auth/spec.md")).unwrap();
+        symlink(src.join("shared"), src.join("changes/c/specs/shared-dir")).unwrap();
+
+        let link = t.0.join("linked-openspec");
+        symlink(&src, &link).unwrap();
+        let options = ScanOptions { global_data_dir: None };
+        let changes = scan_changes_with(&link, "repo", &options);
+        let c = changes.iter().find(|c| c.name == "c").unwrap();
+        assert!(c.has_proposal && c.has_specs);
+        assert_eq!(c.summary.as_deref(), Some("Because."));
+        let detail = get_change_detail_with(&link, "repo", "c", &options).unwrap();
+        let paths: Vec<&str> = detail.specs.iter().map(|s| s.path.as_str()).collect();
+        assert_eq!(paths, vec!["auth/spec.md", "shared-dir/auth.md"]);
+    }
+
+    fn idea_file(id: &str) -> String {
+        format!("---\nid: {id}\ncreatedAt: 2026-01-01T00:00:00+00:00\nupdatedAt: 2026-01-01T00:00:00+00:00\n---\n\n# Title\n\nBody\n")
+    }
+
+    #[test]
+    fn idea_ids_cannot_leave_the_ideas_folder() {
+        let t = TempOpenSpec::new("idea-escape");
+        let src = t.openspec();
+        t.write("ideas/idea-1.md", &idea_file("idea-1"));
+        let victim = outside_file(&t, "victim.md", &idea_file("victim"));
+        let in_source = src.join("project.md");
+        std::fs::write(&in_source, idea_file("project")).unwrap();
+
+        for id in ["../../outside/victim", "../project", "/etc/passwd", ".hidden", "", "a/b", "a\\b"] {
+            let deleted = delete_idea(&src, id);
+            assert_eq!(deleted.unwrap_err().kind(), std::io::ErrorKind::InvalidInput, "delete {id:?}");
+            let updated = update_idea(&src, "repo", id, "pwned", "x");
+            assert_eq!(updated.unwrap_err().kind(), std::io::ErrorKind::InvalidInput, "update {id:?}");
+            let saved = save_idea(&src, "repo", id, "t", "d", None);
+            assert_eq!(saved.unwrap_err().kind(), std::io::ErrorKind::InvalidInput, "create {id:?}");
+        }
+        assert!(victim.exists());
+        assert!(in_source.exists());
+        assert!(!std::fs::read_to_string(&victim).unwrap().contains("pwned"));
+    }
+
+    #[test]
+    fn a_planted_frontmatter_id_does_not_become_the_idea_id() {
+        let t = TempOpenSpec::new("idea-planted");
+        let src = t.openspec();
+        let victim = outside_file(&t, "planted.md", &idea_file("planted"));
+        t.write("ideas/evil.md", &idea_file("../../outside/planted"));
+        t.write("ideas/.hidden.md", &idea_file("hidden"));
+
+        let ideas = scan_ideas(&src, "repo");
+        let ids: Vec<&str> = ideas.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, vec!["repo/evil"], "the id comes from the filename");
+
+        // What the UI's delete button would send.
+        let id = ideas[0].id.strip_prefix("repo/").unwrap();
+        delete_idea(&src, id).unwrap();
+        assert!(victim.exists());
+        assert!(!src.join("ideas/evil.md").exists());
+    }
+
+    #[test]
+    fn editing_an_idea_rewrites_its_id_from_the_filename() {
+        let t = TempOpenSpec::new("idea-rewrite");
+        let src = t.openspec();
+        t.write("ideas/idea-7.md", &idea_file("something-else"));
+        let idea = update_idea(&src, "repo", "idea-7", "New", "Text").unwrap();
+        assert_eq!(idea.id, "repo/idea-7");
+        let written = std::fs::read_to_string(src.join("ideas/idea-7.md")).unwrap();
+        assert!(written.contains("id: idea-7\n"), "{written}");
+        assert_eq!(scan_ideas(&src, "repo")[0].title, "New");
+    }
+
+    #[test]
+    fn a_source_without_ideas_folder_answers_like_a_missing_idea() {
+        let t = TempOpenSpec::new("idea-none");
+        let src = t.openspec();
+        assert!(scan_ideas(&src, "repo").is_empty());
+        delete_idea(&src, "idea-1").unwrap();
+        let update = update_idea(&src, "repo", "idea-1", "t", "d");
+        assert_eq!(update.unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert!(save_idea(&src, "repo", "idea-1", "t", "d", None).is_ok(), "creates ideas/");
+    }
+
+    #[test]
+    fn creating_an_idea_never_overwrites_a_file() {
+        let t = TempOpenSpec::new("idea-create");
+        let src = t.openspec();
+        let created = save_idea(&src, "repo", "idea-1", "First", "one", None).unwrap();
+        assert_eq!(created.id, "repo/idea-1");
+        let again = save_idea(&src, "repo", "idea-1", "Second", "two", None);
+        assert_eq!(again.unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(scan_ideas(&src, "repo")[0].title, "First");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_ideas_are_neither_listed_nor_written_through() {
+        use std::os::unix::fs::symlink;
+        let t = TempOpenSpec::new("idea-symlink");
+        let src = t.openspec();
+        let victim = outside_file(&t, "victim.md", &idea_file("victim"));
+        std::fs::create_dir_all(src.join("ideas")).unwrap();
+        symlink(&victim, src.join("ideas/link.md")).unwrap();
+        assert!(scan_ideas(&src, "repo").is_empty());
+        assert!(update_idea(&src, "repo", "link", "pwned", "x").is_err());
+        assert!(!std::fs::read_to_string(&victim).unwrap().contains("pwned"));
+
+        // The ideas folder itself pointing out of the source.
+        let t2 = TempOpenSpec::new("idea-symlink-dir");
+        let src2 = t2.openspec();
+        let outside = victim.parent().unwrap();
+        symlink(outside, src2.join("ideas")).unwrap();
+        assert!(scan_ideas(&src2, "repo").is_empty());
+        assert!(delete_idea(&src2, "victim").is_err());
+        assert!(save_idea(&src2, "repo", "idea-9", "t", "d", None).is_err());
+        assert!(victim.exists());
+        assert!(!outside.join("idea-9.md").exists());
     }
 
     #[test]

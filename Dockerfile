@@ -8,9 +8,18 @@
 #   docker buildx build --target prebuilt --platform linux/amd64,linux/arm64 \
 #     --build-context bins=<dir containing amd64/openspec-ui and arm64/openspec-ui> .
 #
-# Run:  docker run -p 3000:3000 -v ~/code:/repos ghcr.io/toruai/openspec-ui
+# Run (this computer only):
+#   docker run -p 127.0.0.1:3000:3000 -v ~/code:/repos ghcr.io/toruai/openspec-ui
+# Also from your phone or other devices on the network (open it by IP address;
+# a name such as my-pc.local or a reverse proxy name must be allowed):
+#   docker run -p 3000:3000 -e OPENSPEC_UI_ALLOWED_HOSTS=my-pc.local \
+#     -v ~/code:/repos ghcr.io/toruai/openspec-ui
 # Repos mounted under /repos are found automatically. For a fixed list, mount a
-# config as /repos/openspec-ui.json or point OPENSPEC_UI_CONFIG at one.
+# config as /repos/openspec-ui.json or point OPENSPEC_UI_CONFIG at one. The
+# source list is read-only in the browser here (requests reach the container
+# through Docker's network, not from this machine); change the mounts instead.
+# The board has no login: anyone who can reach the published port can read
+# the mounted repos' OpenSpec files and edit their ideas.
 
 # --- Stage 1: frontend -------------------------------------------------------
 FROM node:22-alpine AS frontend-builder

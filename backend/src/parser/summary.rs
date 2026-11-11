@@ -3,6 +3,7 @@
 //! Display only: nothing here affects a change's state, and every failure
 //! (unreadable file, odd YAML, no proposal) just yields `None`.
 
+use super::contain::Root;
 use serde_yaml::Value;
 use std::path::Path;
 
@@ -23,9 +24,10 @@ pub struct ChangeSummary {
     pub summary: Option<String>,
 }
 
-pub fn summarize(change_dir: &Path) -> ChangeSummary {
-    let goal = read_goal(change_dir);
-    let proposal = std::fs::read_to_string(change_dir.join("proposal.md")).ok();
+/// Files are read only while they stay inside `root` (the source folder).
+pub fn summarize(change_dir: &Path, root: &Root) -> ChangeSummary {
+    let goal = read_goal(change_dir, root);
+    let proposal = root.read(&change_dir.join("proposal.md"));
     let (title, why) = proposal.as_deref().map(parse_proposal).unwrap_or_default();
     ChangeSummary {
         title,
@@ -35,8 +37,8 @@ pub fn summarize(change_dir: &Path) -> ChangeSummary {
 
 /// `goal:` from `.openspec.yaml`, read leniently. Whether the file is valid is
 /// `workflow::read_metadata`'s call; this never rejects anything.
-fn read_goal(change_dir: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(change_dir.join(".openspec.yaml")).ok()?;
+fn read_goal(change_dir: &Path, root: &Root) -> Option<String> {
+    let content = root.read(&change_dir.join(".openspec.yaml"))?;
     let parsed: Value = serde_yaml::from_str(&content).ok()?;
     match parsed.get("goal")? {
         Value::String(s) => non_empty(collapse_whitespace(s)),
@@ -197,6 +199,10 @@ fn truncate(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    fn summarize(dir: &Path) -> ChangeSummary {
+        super::summarize(dir, &Root::new(dir).unwrap())
+    }
 
     fn change(files: &[(&str, &str)]) -> TempDir {
         let dir = TempDir::new().unwrap();

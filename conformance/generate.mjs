@@ -66,7 +66,9 @@ function installOpenSpec(version, workDir) {
   fs.writeFileSync(path.join(prefix, 'package.json'), '{"private":true}\n');
   console.error(`Installing @fission-ai/openspec@${version} ...`);
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = run(npm, ['install', '--no-audit', '--no-fund', '--loglevel=error', `@fission-ai/openspec@${version}`], { cwd: prefix, shell: process.platform === 'win32' });
+  // --ignore-scripts: this runs on main and on a schedule with whatever npm
+  // calls "latest"; the CLI works without install scripts, so none run.
+  const result = run(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error', `@fission-ai/openspec@${version}`], { cwd: prefix, shell: process.platform === 'win32' });
   if (result.status !== 0) {
     throw new Error(`npm install failed:\n${result.stdout}\n${result.stderr}`);
   }

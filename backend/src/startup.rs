@@ -132,7 +132,10 @@ pub async fn probe_info(addr: SocketAddr) -> Option<Info> {
 
 pub enum Bound {
     Listening { listener: TcpListener, skipped: Vec<u16> },
-    /// An openspec-ui for the same scope already runs here.
+    /// An openspec-ui for the same scope already runs here. Its `url`,
+    /// `port` and `changelog` are ours (the address we probed), never what it
+    /// claimed, and `lan_url` is cleared for the caller to compute. `pid` and
+    /// `sources` are as reported, for display only.
     Reused(Info),
 }
 
@@ -184,7 +187,15 @@ pub async fn bind(
             if let Some(addr) = occupied {
                 if let Some(info) = probe_info(addr).await {
                     if scope.matches(&info) {
-                        return Ok(Bound::Reused(info));
+                        // Whatever holds the port wrote this JSON; only the
+                        // address we connected to is ours to print and open.
+                        return Ok(Bound::Reused(Info {
+                            url: local_url(ip, p),
+                            port: p,
+                            lan_url: None,
+                            changelog: CHANGELOG_URL.to_string(),
+                            ..info
+                        }));
                     }
                     tracing::info!("port {p} is used by another openspec-ui ({:?})", info.roots);
                 }
@@ -243,22 +254,29 @@ pub fn in_container() -> bool {
     std::path::Path::new("/.dockerenv").exists() || std::path::Path::new("/run/.containerenv").exists()
 }
 
+/// Program and arguments that open `url` in the default browser on `os`
+/// (`std::env::consts::OS`). Never a shell: on Windows `cmd /C start` would
+/// interpret `&`, `|` and `^` in the URL, so `rundll32` is used instead.
+/// Only plain `http://` URLs are opened.
+pub fn browser_command(os: &str, url: &str) -> Option<(&'static str, Vec<String>)> {
+    if !url.starts_with("http://") || url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
+        return None;
+    }
+    Some(match os {
+        "macos" => ("open", vec![url.to_string()]),
+        "windows" => ("rundll32", vec!["url.dll,FileProtocolHandler".to_string(), url.to_string()]),
+        _ => ("xdg-open", vec![url.to_string()]),
+    })
+}
+
 pub fn open_browser(url: &str) {
     use std::process::{Command, Stdio};
-    let mut cmd = if cfg!(target_os = "macos") {
-        let mut c = Command::new("open");
-        c.arg(url);
-        c
-    } else if cfg!(windows) {
-        let mut c = Command::new("cmd");
-        c.args(["/C", "start", "", url]);
-        c
-    } else {
-        let mut c = Command::new("xdg-open");
-        c.arg(url);
-        c
+    let Some((program, args)) = browser_command(std::env::consts::OS, url) else {
+        tracing::debug!("not opening a browser for {url:?}");
+        return;
     };
-    let spawned = cmd
+    let spawned = Command::new(program)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -454,6 +472,40 @@ mod tests {
         let port = squatter.local_addr().unwrap().port();
         let err = bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, Some("--port"), &scope()).await.err();
         assert!(err.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_reused_server_cannot_choose_the_url_we_print_or_open() {
+        let s = scope();
+        let liar = Info {
+            url: "http://evil.example/phish & calc.exe".into(),
+            lan_url: Some("http://evil.example/".into()),
+            changelog: "http://evil.example/changelog".into(),
+            ..info_for(&s, 0)
+        };
+        let port = fake_openspec_ui(liar).await;
+        match bind(IpAddr::V4(Ipv4Addr::LOCALHOST), port, None, &s).await.unwrap() {
+            Bound::Reused(info) => {
+                assert_eq!(info.url, format!("http://127.0.0.1:{port}"));
+                assert_eq!(info.port, port);
+                assert_eq!(info.lan_url, None);
+                assert_eq!(info.changelog, CHANGELOG_URL);
+            }
+            Bound::Listening { .. } => panic!("should reuse"),
+        }
+    }
+
+    #[test]
+    fn browser_is_opened_without_a_shell() {
+        let url = "http://127.0.0.1:3000";
+        let (program, args) = browser_command("windows", url).unwrap();
+        assert_eq!(program, "rundll32");
+        assert_eq!(args, vec!["url.dll,FileProtocolHandler", url]);
+        assert_eq!(browser_command("macos", url).unwrap().0, "open");
+        assert_eq!(browser_command("linux", url).unwrap().0, "xdg-open");
+        for bad in ["https://x\" & calc", "file:///etc/passwd", "http://x/ & calc", "javascript:alert(1)", "http://x/\"&calc"] {
+            assert!(browser_command("windows", bad).is_none(), "{bad}");
+        }
     }
 
     #[tokio::test]

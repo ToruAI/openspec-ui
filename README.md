@@ -43,7 +43,7 @@ Run it in a repo, or in a folder that holds several. It finds every `openspec/` 
 |---|---|
 | **npx** (macOS, Linux, Windows) | `npx openspec-ui` |
 | **Install script** (macOS, Linux) | see below |
-| **Docker** | `docker run -p 3000:3000 -v ~/code:/repos ghcr.io/toruai/openspec-ui` |
+| **Docker** | `docker run -p 127.0.0.1:3000:3000 -v ~/code:/repos ghcr.io/toruai/openspec-ui` |
 | **Download** | [Releases](https://github.com/ToruAI/openspec-ui/releases/latest): `.zip` for macOS (Apple Silicon, Intel), Linux (x86_64, arm64, static), Windows (x86_64) |
 
 ```sh
@@ -75,7 +75,7 @@ openspec-ui --json           # one JSON line with the URL, for scripts and agent
 
 It takes port 3000, or the next free one. Starting it again for the same folders reuses the running server instead of starting a second one. With `--json` it prints that one line and keeps serving, so scripts should start it in the background; `GET /api/info` returns the same JSON, and `GET /api/changes` the board's data. `openspec-ui --help` lists every option.
 
-**On your phone.** The board listens on localhost only. Start it with `--host 0.0.0.0` and press the phone button in the header: it shows the address to open on a phone on the same network.
+**On your phone.** The board listens on localhost only. Start it with `--host 0.0.0.0` and press the phone button in the header: it shows the address to open on a phone on the same network. Open it by that IP address; a name such as `my-pc.local` or a reverse proxy's needs `--allowed-host NAME`. Settings are read-only on the phone.
 
 **A fixed list of repos.** Optional: put an `openspec-ui.json` in the folder you start from, or pass `--config`:
 
@@ -112,7 +112,7 @@ Supported: the default `spec-driven` workflow and custom schemas, `skip_specs`, 
 ## What it does not do
 
 - **It does not change your specs or changes.** No creating, editing, applying or archiving; that stays with OpenSpec and your agent. The only files it writes are idea notes in `openspec/ideas/` and `openspec-ui.json` if you use one.
-- **No login.** Anyone who can reach the port can read the board and edit ideas. It listens on localhost by default; use `--host 0.0.0.0` only on networks you trust. See [SECURITY.md](SECURITY.md).
+- **No login.** Anyone who can reach the port can read the board and edit ideas. It listens on localhost by default; use `--host 0.0.0.0` only on networks you trust. Other websites cannot reach it through your browser, and it never reads outside the projects it shows. See [SECURITY.md](SECURITY.md).
 - **OpenSpec stores are beta.** A store checkout is shown like a repo; a repo that points to a store is reported as such, and its changes are not loaded from the store.
 
 OpenSpec UI is an independent community project. It is not affiliated with or endorsed by Fission-AI or the OpenSpec project.

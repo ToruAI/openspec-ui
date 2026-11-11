@@ -15,6 +15,7 @@
 //! - Tasks are counted in the files of the artifact `apply.tracks` names (or
 //!   the artifact with id `tasks`), falling back to `tasks.md`.
 
+use super::contain::Root;
 use super::tasks::count_tasks;
 use super::{Artifact, ArtifactStatus, TaskStats};
 use globset::{GlobBuilder, GlobMatcher};
@@ -278,6 +279,8 @@ pub fn builtin_schemas() -> &'static Vec<SchemaDef> {
 /// Where schemas are looked up for one OpenSpec root.
 #[derive(Debug, Clone)]
 pub struct SchemaDirs {
+    /// The source's OpenSpec directory: project schemas must stay inside it.
+    root: Root,
     /// `<openspec dir>/schemas`
     project: PathBuf,
     /// `<OpenSpec global data dir>/schemas`
@@ -285,9 +288,10 @@ pub struct SchemaDirs {
 }
 
 impl SchemaDirs {
-    pub fn new(openspec_dir: &Path, global_data_dir: Option<&Path>) -> Self {
+    pub fn new(root: &Root, global_data_dir: Option<&Path>) -> Self {
         SchemaDirs {
-            project: openspec_dir.join("schemas"),
+            root: root.clone(),
+            project: root.path().join("schemas"),
             user: global_data_dir.map(|d| d.join("schemas")),
         }
     }
@@ -306,10 +310,11 @@ impl SchemaDirs {
         if !Self::valid_name(name) {
             return None;
         }
-        std::iter::once(&self.project)
-            .chain(self.user.iter())
-            .map(|dir| dir.join(name).join("schema.yaml"))
-            .find(|path| path.is_file())
+        let project = Some(self.project.join(name).join("schema.yaml"))
+            .filter(|path| self.root.file(path).is_some());
+        // The user-level directory lives outside every project by design.
+        let user = self.user.as_ref().map(|dir| dir.join(name).join("schema.yaml")).filter(|path| path.is_file());
+        project.or(user)
     }
 
     /// Every schema name OpenSpec would accept in `.openspec.yaml` (`listSchemas`).
@@ -322,7 +327,9 @@ impl SchemaDirs {
                     || name.contains(".fork-backup-")
                     || name.starts_with(".init-staging-")
                     || name.contains(".init-backup-");
-                if !transient && entry.path().is_dir() && entry.path().join("schema.yaml").is_file() {
+                let schema = entry.path().join("schema.yaml");
+                let present = if *dir == self.project { self.root.file(&schema).is_some() } else { schema.is_file() };
+                if !transient && entry.path().is_dir() && present {
                     names.insert(name);
                 }
             }
@@ -412,10 +419,11 @@ fn is_iso_date(value: &str) -> bool {
 }
 
 /// Validate `.openspec.yaml` the way OpenSpec's `readChangeMetadata` does. Any
-/// failure here makes `openspec status` refuse the change.
+/// failure here makes `openspec status` refuse the change. A file that
+/// resolves outside the source counts as absent.
 pub fn read_metadata(change_dir: &Path, schemas: &SchemaDirs) -> MetadataRead {
     let path = change_dir.join(METADATA_FILE);
-    if !path.exists() {
+    if !path.exists() || schemas.root.contain(&path).is_none() {
         return MetadataRead::Absent;
     }
     let content = match std::fs::read_to_string(&path) {
@@ -509,12 +517,12 @@ pub fn read_metadata(change_dir: &Path, schemas: &SchemaDirs) -> MetadataRead {
 }
 
 /// `schema:` from `openspec/config.yaml` (or `.yml`), the project default.
-pub fn read_project_default_schema(openspec_dir: &Path) -> Option<String> {
+pub fn read_project_default_schema(openspec_dir: &Path, root: &Root) -> Option<String> {
     let path = ["config.yaml", "config.yml"]
         .iter()
         .map(|f| openspec_dir.join(f))
         .find(|p| p.exists())?;
-    let parsed: Value = serde_yaml::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let parsed: Value = serde_yaml::from_str(&root.read(&path)?).ok()?;
     match parsed.get("schema")? {
         Value::String(s) if !s.is_empty() => Some(s.clone()),
         _ => None,
@@ -572,19 +580,29 @@ fn compile(pattern: &str) -> Option<GlobMatcher> {
 
 /// Files an artifact's `generates` resolves to (`resolveArtifactOutputs`).
 /// Regular files only; dot files and dot directories never match a glob.
-pub fn resolve_outputs(change_dir: &Path, generates: &str) -> Vec<PathBuf> {
+///
+/// Symlinks are followed only while they stay inside `root` (the source's
+/// OpenSpec directory): one pointing elsewhere counts as absent, for the
+/// board's status and for the content shown alike, and a link to `/` is
+/// never walked.
+pub fn resolve_outputs(change_dir: &Path, generates: &str, root: &Root) -> Vec<PathBuf> {
     if !is_glob(generates) {
-        let path = change_dir.join(generates);
-        return if path.is_file() { vec![path] } else { Vec::new() };
+        return root.file(&change_dir.join(generates)).into_iter().collect();
     }
     let Some(matcher) = compile(generates) else {
         return Vec::new();
     };
+    if root.contain(change_dir).is_none() {
+        return Vec::new();
+    }
     let mut matches: Vec<PathBuf> = WalkDir::new(change_dir)
         .follow_links(true)
         .min_depth(1)
         .into_iter()
-        .filter_entry(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .filter_entry(|e| {
+            !e.file_name().to_string_lossy().starts_with('.')
+                && (!e.path_is_symlink() || root.contain(e.path()).is_some())
+        })
         .flatten()
         .filter(|e| e.file_type().is_file())
         .filter(|e| {
@@ -683,7 +701,7 @@ fn count_task_files(files: &[PathBuf]) -> TaskStats {
     stats
 }
 
-pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs) -> ChangeAnalysis {
+pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs, root: &Root) -> ChangeAnalysis {
     let metadata = read_metadata(change_dir, schemas);
 
     let (schema_name, skip_specs, warnings, mut error) = match &metadata {
@@ -700,7 +718,7 @@ pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDi
             (Some(m.schema.clone()), m.skip_specs, warnings, None)
         }
         MetadataRead::Absent => (
-            Some(read_project_default_schema(openspec_dir).unwrap_or_else(|| DEFAULT_SCHEMA.to_string())),
+            Some(read_project_default_schema(openspec_dir, root).unwrap_or_else(|| DEFAULT_SCHEMA.to_string())),
             false,
             Vec::new(),
             None,
@@ -722,13 +740,10 @@ pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDi
     let mut task_files = schema
         .as_ref()
         .and_then(tracked_tasks_generates)
-        .map(|generates| resolve_outputs(change_dir, generates))
+        .map(|generates| resolve_outputs(change_dir, generates, root))
         .unwrap_or_default();
     if task_files.is_empty() {
-        let fallback = change_dir.join("tasks.md");
-        if fallback.is_file() {
-            task_files.push(fallback);
-        }
+        task_files.extend(root.file(&change_dir.join("tasks.md")));
     }
     let task_stats = (!task_files.is_empty()).then(|| count_task_files(&task_files));
 
@@ -748,7 +763,7 @@ pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDi
     let mut completed: HashSet<&str> = schema
         .artifacts
         .iter()
-        .filter(|a| !resolve_outputs(change_dir, &a.generates).is_empty())
+        .filter(|a| !resolve_outputs(change_dir, &a.generates, root).is_empty())
         .map(|a| a.id.as_str())
         .collect();
     let mut skipped: HashSet<&str> = HashSet::new();
@@ -846,8 +861,8 @@ fn has_any_file_under(dir: &Path) -> bool {
         })
 }
 
-fn looks_like_change(dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs) -> bool {
-    if CHANGE_ROOT_MARKERS.iter().any(|m| dir.join(m).is_file()) {
+fn looks_like_change(dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs, root: &Root) -> bool {
+    if CHANGE_ROOT_MARKERS.iter().any(|m| root.file(&dir.join(m)).is_some()) {
         return true;
     }
     if has_any_file_under(&dir.join("specs")) {
@@ -857,7 +872,7 @@ fn looks_like_change(dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs) -> b
         MetadataRead::Valid(m) => m.schema,
         MetadataRead::Invalid(_) => return false,
         MetadataRead::Absent => {
-            read_project_default_schema(openspec_dir).unwrap_or_else(|| DEFAULT_SCHEMA.into())
+            read_project_default_schema(openspec_dir, root).unwrap_or_else(|| DEFAULT_SCHEMA.into())
         }
     };
     schemas
@@ -865,7 +880,7 @@ fn looks_like_change(dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs) -> b
         .map(|s| {
             s.artifacts
                 .iter()
-                .any(|a| !resolve_outputs(dir, &a.generates).is_empty())
+                .any(|a| !resolve_outputs(dir, &a.generates, root).is_empty())
         })
         .unwrap_or(false)
 }
@@ -891,8 +906,9 @@ pub fn find_nested_changes(
     name: &str,
     openspec_dir: &Path,
     schemas: &SchemaDirs,
+    root: &Root,
 ) -> Vec<String> {
-    if looks_like_change(change_dir, openspec_dir, schemas) {
+    if looks_like_change(change_dir, openspec_dir, schemas, root) {
         return Vec::new();
     }
     let has_own_file = std::fs::read_dir(change_dir)
@@ -912,6 +928,7 @@ pub fn find_nested_changes(
         found: &mut Vec<String>,
         openspec_dir: &Path,
         schemas: &SchemaDirs,
+        root: &Root,
     ) {
         if depth > MAX_NESTING_DEPTH {
             return;
@@ -919,15 +936,15 @@ pub fn find_nested_changes(
         for child in subdirectories(dir) {
             let path = dir.join(&child);
             let id = format!("{prefix}/{child}");
-            if looks_like_change(&path, openspec_dir, schemas) {
+            if looks_like_change(&path, openspec_dir, schemas, root) {
                 found.push(id);
             } else {
-                collect(&path, &id, depth + 1, found, openspec_dir, schemas);
+                collect(&path, &id, depth + 1, found, openspec_dir, schemas, root);
             }
         }
     }
     let mut found = Vec::new();
-    collect(change_dir, name, 1, &mut found, openspec_dir, schemas);
+    collect(change_dir, name, 1, &mut found, openspec_dir, schemas, root);
     found.sort();
     found
 }

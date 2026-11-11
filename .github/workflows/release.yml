@@ -153,18 +153,14 @@ jobs:
           npm ci
           npm run build
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-11-11
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Install musl tools
         if: endsWith(matrix.target, '-musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
-          key: ${{ matrix.target }}
 
       - name: Build binary
         working-directory: backend
@@ -370,10 +366,10 @@ jobs:
       - name: Unpack binaries for the build context
         run: scripts/unpack-image-bins.sh dist bins
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build amd64 image and smoke test it
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           target: prebuilt
@@ -399,14 +395,14 @@ jobs:
 
       - name: Log in to ghcr.io
         if: needs.meta.outputs.publish == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
       - name: Build multi-arch (push only when publishing)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           target: prebuilt
