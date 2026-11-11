@@ -84,6 +84,9 @@ pub struct ConfigResponse {
     pub roots: Vec<String>,
     /// Whether edits survive a restart.
     pub persistent: bool,
+    /// Whether this client may change the sources: only a browser on the
+    /// machine the server runs on may (set per request by the handler).
+    pub sources_editable: bool,
 }
 
 impl ConfigManager {
@@ -141,6 +144,7 @@ impl ConfigManager {
                 config_path: Some(path.display().to_string()),
                 roots: Vec::new(),
                 persistent: true,
+                sources_editable: true,
             },
             Mode::Discovered { roots } => ConfigResponse {
                 sources,
@@ -149,6 +153,7 @@ impl ConfigManager {
                 config_path: None,
                 roots: roots.iter().map(|r| r.display().to_string()).collect(),
                 persistent: false,
+                sources_editable: true,
             },
         })
     }

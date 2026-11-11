@@ -241,6 +241,8 @@ export interface ConfigResponse {
   configPath?: string | null;
   roots?: string[];
   persistent?: boolean;
+  /** False when this browser is not on the machine running openspec-ui: sources are read-only then. Missing (older servers, demo) means editable. */
+  sourcesEditable?: boolean;
 }
 
 /** What the running server reports about itself (GET /api/info). */

@@ -20,7 +20,7 @@ interface SettingsModalProps {
 
 export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   const [sources, setSources] = useState<SourceConfig[]>([]);
-  const [storage, setStorage] = useState<Pick<ConfigResponse, 'mode' | 'configPath' | 'roots'>>({});
+  const [storage, setStorage] = useState<Pick<ConfigResponse, 'mode' | 'configPath' | 'roots' | 'sourcesEditable'>>({});
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +50,12 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
       setLoading(true);
       const config = await getConfig();
       setSources(config.sources);
-      setStorage({ mode: config.mode, configPath: config.configPath, roots: config.roots });
+      setStorage({
+        mode: config.mode,
+        configPath: config.configPath,
+        roots: config.roots,
+        sourcesEditable: config.sourcesEditable,
+      });
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load configuration');
@@ -88,9 +93,12 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     }
   }
 
-  const sessionOnly = storage.mode === 'discovered' && !IS_DEMO;
+  // Another device (a phone, or the host's browser reaching a container) may
+  // read the board but not repoint the server at other folders.
+  const remote = !IS_DEMO && storage.sourcesEditable === false;
+  const sessionOnly = storage.mode === 'discovered' && !IS_DEMO && !remote;
   // The static demo shows sample projects; editing sources would do nothing, so it is disabled.
-  const busy = loading || IS_DEMO;
+  const busy = loading || IS_DEMO || remote;
   const configJson = JSON.stringify({ sources }, null, 2);
 
   async function handleCopyConfig() {
@@ -139,6 +147,12 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                   <>
                     These are the sample projects of this demo. Sources can be added and removed
                     when you run openspec-ui on your own machine.
+                  </>
+                ) : remote ? (
+                  <>
+                    Sources can be changed only in a browser on the computer openspec-ui runs on
+                    (in Docker: change the folders mounted under <code className="font-mono text-xs">/repos</code>).
+                    Here they are read-only.
                   </>
                 ) : sessionOnly ? (
                   <>
@@ -220,56 +234,58 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             </div>
 
             {/* Add new source form */}
-            <div className="grid gap-4 p-4 border border-border/50 rounded-xl bg-muted/30">
-              <div className="text-sm font-medium flex items-center gap-2">
-                <Plus className="h-4 w-4 text-primary" />
-                Add New Source
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name" className="text-xs">Name</Label>
-                  <Input
-                    id="name"
-                    placeholder="e.g. brain-gate"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    disabled={busy}
-                    className="h-9 bg-background/50"
-                  />
+            {!remote && (
+              <div className="grid gap-4 p-4 border border-border/50 rounded-xl bg-muted/30">
+                <div className="text-sm font-medium flex items-center gap-2">
+                  <Plus className="h-4 w-4 text-primary" />
+                  Add New Source
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="path" className="text-xs">Path</Label>
-                  <Input
-                    id="path"
-                    placeholder="/path/to/repo"
-                    value={newPath}
-                    onChange={(e) => setNewPath(e.target.value)}
-                    disabled={busy}
-                    className="h-9 bg-background/50 font-mono text-sm"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name" className="text-xs">Name</Label>
+                    <Input
+                      id="name"
+                      placeholder="e.g. brain-gate"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      disabled={busy}
+                      className="h-9 bg-background/50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="path" className="text-xs">Path</Label>
+                    <Input
+                      id="path"
+                      placeholder="/path/to/repo"
+                      value={newPath}
+                      onChange={(e) => setNewPath(e.target.value)}
+                      disabled={busy}
+                      className="h-9 bg-background/50 font-mono text-sm"
+                    />
+                  </div>
                 </div>
+                <Button 
+                  onClick={handleAddSource} 
+                  disabled={!newName || !newPath || busy}
+                  className={cn(
+                    "w-full sm:w-auto sm:ml-auto transition-all",
+                    loading && "opacity-70"
+                  )}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Source
+                    </>
+                  )}
+                </Button>
               </div>
-              <Button 
-                onClick={handleAddSource} 
-                disabled={!newName || !newPath || busy}
-                className={cn(
-                  "w-full sm:w-auto sm:ml-auto transition-all",
-                  loading && "opacity-70"
-                )}
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Source
-                  </>
-                )}
-              </Button>
-            </div>
+            )}
 
             {sessionOnly && sources.length > 0 && (
               <details className="group rounded-xl border border-border/50 p-4 text-sm">

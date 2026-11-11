@@ -2,12 +2,13 @@ mod cli;
 mod config;
 mod config_manager;
 mod discovery;
+mod guard;
 mod parser;
 mod startup;
 
 use axum::{
-    extract::{Path, Request, State},
-    http::{header, HeaderMap, Method, StatusCode, Uri},
+    extract::{ConnectInfo, Path, Request, State},
+    http::{header, StatusCode, Uri},
     middleware::{self, Next},
     response::{sse::Event, IntoResponse, Json, Response, Sse},
     routing::{delete, get, put},
@@ -18,6 +19,7 @@ use cli::{Args, SourceChoice};
 use config::SourceConfig;
 use config_manager::{AppState, ConfigManager, ConfigResponse, Mode};
 use futures::stream::{self, Stream};
+use guard::{ClientAddr, Guard};
 use notify::{EventKind, RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer, DebouncedEvent, FileIdMap};
 use parser::{Change, ChangeDetail, Idea, Spec, SpecDetail};
@@ -28,7 +30,6 @@ use std::{
     convert::Infallible,
     env,
     io::{IsTerminal, Write},
-    net::IpAddr,
     path::PathBuf,
     process::ExitCode,
     sync::Arc,
@@ -343,18 +344,32 @@ async fn update_idea(
     Ok(Json(idea))
 }
 
-async fn get_config(State(state): State<AppState>) -> Result<Json<ConfigResponse>, StatusCode> {
+async fn get_config(
+    State(state): State<AppState>,
+    ConnectInfo(client): ConnectInfo<ClientAddr>,
+) -> Result<Json<ConfigResponse>, StatusCode> {
     let config_manager = state.config_manager().await;
-    config_manager
+    let mut response = config_manager
         .get_config_response()
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    response.sources_editable = client.is_local();
+    Ok(Json(response))
 }
+
+/// Shown when another device tries to change the sources.
+const SOURCES_LOCAL_ONLY: &str = "Sources can be changed only from a browser on the computer openspec-ui runs on. \
+In Docker, change the folders mounted under /repos instead.";
 
 async fn update_sources(
     State(state): State<AppState>,
+    ConnectInfo(client): ConnectInfo<ClientAddr>,
     Json(req): Json<UpdateSourcesRequest>,
 ) -> Result<Json<ConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Repointing the server at other folders lets the caller read them, so
+    // only a client on this machine may do it (a phone may read the board).
+    if !client.is_local() {
+        return Err((StatusCode::FORBIDDEN, Json(ErrorResponse { error: SOURCES_LOCAL_ONLY.to_string() })));
+    }
     let config_manager = state.config_manager().await;
 
     // Validate sources - invalid ones are filtered out with warnings
@@ -480,51 +495,14 @@ fn info_sources(sources: &[config::Source]) -> Vec<InfoSource> {
         .collect()
 }
 
-struct Guard {
-    /// Bound to a loopback address: only answer to localhost names.
-    loopback: bool,
-    /// Extra origins allowed to write (from CORS_ALLOWED_ORIGINS).
-    allowed_origins: Vec<String>,
-}
-
-fn is_loopback_host(host: &str) -> bool {
-    let name = if let Some(rest) = host.strip_prefix('[') {
-        rest.split(']').next().unwrap_or("")
-    } else {
-        host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host)
-    };
-    name.eq_ignore_ascii_case("localhost")
-        || name.to_ascii_lowercase().ends_with(".localhost")
-        || name.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
-}
-
-/// The API writes files (ideas, config). On loopback, refusing foreign Host
-/// names blocks DNS rebinding; refusing cross-origin writes stops other
-/// websites from posting to the local server.
-fn guard_verdict(guard: &Guard, method: &Method, headers: &HeaderMap) -> Option<&'static str> {
-    let host = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if guard.loopback && !host.is_empty() && !is_loopback_host(host) {
-        return Some("openspec-ui only answers to localhost. Start it with --host 0.0.0.0 to allow other addresses.");
-    }
-    if !matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS) {
-        if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
-            let same_origin = origin
-                .split_once("://")
-                .is_some_and(|(_, authority)| authority.eq_ignore_ascii_case(host));
-            if !same_origin && !guard.allowed_origins.iter().any(|o| o == origin) {
-                return Some("Cross-origin changes are not allowed.");
-            }
-        }
-    }
-    None
-}
-
 async fn request_guard(State(guard): State<Arc<Guard>>, req: Request, next: Next) -> Response {
-    match guard_verdict(&guard, req.method(), req.headers()) {
-        Some(reason) => (StatusCode::FORBIDDEN, reason).into_response(),
+    match guard.verdict(req.method(), req.headers()) {
+        Some(reason) => (
+            StatusCode::FORBIDDEN,
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            reason,
+        )
+            .into_response(),
         None => next.run(req).await,
     }
 }
@@ -553,6 +531,37 @@ fn cors_layer(default_origins: &[String]) -> (CorsLayer, Vec<String>) {
         .allow_methods(Any)
         .allow_headers(Any);
     (layer, configured)
+}
+
+fn build_app(state: AppState, meta: Arc<Info>, guard: Arc<Guard>, cors: CorsLayer) -> Router {
+    let api = Router::new()
+        .route("/api/health", get(health))
+        .route("/api/config", get(get_config))
+        .route("/api/config/sources", put(update_sources))
+        .route("/api/sources", get(get_sources))
+        .route("/api/changes", get(get_changes))
+        .route("/api/changes/{id}", get(get_change_detail))
+        .route("/api/specs", get(get_specs))
+        .route("/api/specs/{id}", get(get_spec_detail))
+        .route("/api/ideas", get(get_ideas).post(create_idea))
+        .route("/api/ideas/{id}", delete(delete_idea).put(update_idea))
+        .route("/api/events", get(sse_handler))
+        .with_state(state.clone())
+        .merge(
+            Router::new()
+                .route("/api/info", get(get_info))
+                .with_state((state, meta)),
+        );
+
+    // If FRONTEND_DIR is set, serve it (dev mode), otherwise use embedded assets
+    let app = if let Ok(frontend_dir) = env::var("FRONTEND_DIR") {
+        tracing::info!("Serving frontend from local directory: {}", frontend_dir);
+        api.fallback_service(ServeDir::new(frontend_dir))
+    } else {
+        api.fallback(static_handler)
+    };
+    app.layer(cors)
+        .layer(middleware::from_fn_with_state(guard, request_guard))
 }
 
 // === File watcher ===
@@ -664,6 +673,7 @@ async fn run(args: Args) -> Result<(), String> {
     let env_config = env::var("OPENSPEC_UI_CONFIG").ok();
     let choice = cli::choose_sources(args.config.as_deref(), &args.paths, env_config.as_deref(), &cwd);
     let ip = startup::parse_host(&args.host)?;
+    let allowed_hosts = guard::parse_allowed_hosts(&args.allowed_hosts)?;
 
     // Check inputs before touching the network: a wrong explicit config or
     // path is an error, never a silent fall-back to scanning.
@@ -830,39 +840,11 @@ async fn run(args: Args) -> Result<(), String> {
     let local_origins = vec![url.clone(), format!("http://localhost:{port}")];
     let (cors, allowed_origins) = cors_layer(&local_origins);
     let guard = Arc::new(Guard {
-        loopback: ip.is_loopback(),
+        allowed_hosts,
+        machine_names: guard::machine_names(),
         allowed_origins,
     });
-
-    let api = Router::new()
-        .route("/api/health", get(health))
-        .route("/api/config", get(get_config))
-        .route("/api/config/sources", put(update_sources))
-        .route("/api/sources", get(get_sources))
-        .route("/api/changes", get(get_changes))
-        .route("/api/changes/{id}", get(get_change_detail))
-        .route("/api/specs", get(get_specs))
-        .route("/api/specs/{id}", get(get_spec_detail))
-        .route("/api/ideas", get(get_ideas).post(create_idea))
-        .route("/api/ideas/{id}", delete(delete_idea).put(update_idea))
-        .route("/api/events", get(sse_handler))
-        .with_state(state.clone())
-        .merge(
-            Router::new()
-                .route("/api/info", get(get_info))
-                .with_state((state, meta)),
-        );
-
-    // If FRONTEND_DIR is set, serve it (dev mode), otherwise use embedded assets
-    let app = if let Ok(frontend_dir) = env::var("FRONTEND_DIR") {
-        tracing::info!("Serving frontend from local directory: {}", frontend_dir);
-        api.fallback_service(ServeDir::new(frontend_dir))
-    } else {
-        api.fallback(static_handler)
-    };
-    let app = app
-        .layer(cors)
-        .layer(middleware::from_fn_with_state(guard, request_guard));
+    let app = build_app(state, meta, guard, cors);
 
     // Announce
     let mut announced = info;
@@ -887,7 +869,7 @@ async fn run(args: Args) -> Result<(), String> {
     }
     maybe_open_browser(&args, &url);
 
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<ClientAddr>())
         .await
         .map_err(|e| format!("Server stopped: {e}"))
 }
@@ -895,43 +877,100 @@ async fn run(args: Args) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::HeaderValue;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    fn headers(host: &str, origin: Option<&str>) -> HeaderMap {
-        let mut h = HeaderMap::new();
-        h.insert(header::HOST, HeaderValue::from_str(host).unwrap());
-        if let Some(o) = origin {
-            h.insert(header::ORIGIN, HeaderValue::from_str(o).unwrap());
-        }
-        h
+    fn client(remote: &str) -> ClientAddr {
+        ClientAddr { remote: remote.parse().unwrap(), local: Some("192.168.1.5:3000".parse().unwrap()) }
     }
 
-    #[test]
-    fn loopback_server_rejects_foreign_host_names() {
-        let g = Guard { loopback: true, allowed_origins: vec![] };
-        assert!(guard_verdict(&g, &Method::GET, &headers("127.0.0.1:3000", None)).is_none());
-        assert!(guard_verdict(&g, &Method::GET, &headers("localhost:3000", None)).is_none());
-        assert!(guard_verdict(&g, &Method::GET, &headers("[::1]:3000", None)).is_none());
-        assert!(guard_verdict(&g, &Method::GET, &headers("evil.example:3000", None)).is_some());
-
-        let lan = Guard { loopback: false, allowed_origins: vec![] };
-        assert!(guard_verdict(&lan, &Method::GET, &headers("my-laptop.local:3000", None)).is_none());
+    fn test_state(dir: &std::path::Path) -> AppState {
+        let manager = Arc::new(ConfigManager::discovered(vec![dir.to_path_buf()], vec![]));
+        let (tx, _) = broadcast::channel(4);
+        let (config_tx, _) = broadcast::channel(4);
+        AppState::new(vec![], manager, tx, config_tx)
     }
 
-    #[test]
-    fn cross_origin_writes_are_rejected() {
-        let g = Guard { loopback: true, allowed_origins: vec!["http://localhost:5173".into()] };
-        let post = Method::POST;
-        let same = headers("127.0.0.1:3000", Some("http://127.0.0.1:3000"));
-        assert!(guard_verdict(&g, &post, &same).is_none());
-        // curl and scripts send no Origin
-        assert!(guard_verdict(&g, &post, &headers("127.0.0.1:3000", None)).is_none());
-        let evil = headers("127.0.0.1:3000", Some("https://evil.example"));
-        assert!(guard_verdict(&g, &post, &evil).is_some());
-        let dev = headers("127.0.0.1:3000", Some("http://localhost:5173"));
-        assert!(guard_verdict(&g, &post, &dev).is_none());
-        // reads stay open (CORS still keeps the response from other sites)
-        assert!(guard_verdict(&g, &Method::GET, &evil).is_none());
+    #[tokio::test]
+    async fn only_this_machine_may_repoint_the_sources() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("openspec/specs")).unwrap();
+        let state = test_state(tmp.path());
+        let request = || {
+            Json(UpdateSourcesRequest {
+                sources: vec![SourceConfig { name: "x".into(), path: tmp.path().join("openspec").display().to_string() }],
+            })
+        };
+
+        let phone = update_sources(State(state.clone()), ConnectInfo(client("192.168.1.20:50000")), request()).await;
+        let (status, Json(body)) = phone.err().expect("a phone must not change the sources");
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.error.contains("computer openspec-ui runs on"), "{}", body.error);
+        assert!(state.get_sources().await.is_empty());
+
+        let config = get_config(State(state.clone()), ConnectInfo(client("192.168.1.20:50000"))).await.unwrap();
+        assert!(!config.0.sources_editable);
+
+        let here = update_sources(State(state.clone()), ConnectInfo(client("127.0.0.1:50000")), request()).await;
+        assert!(here.is_ok());
+        assert_eq!(state.get_sources().await.len(), 1);
+        let config = get_config(State(state.clone()), ConnectInfo(client("127.0.0.1:50000"))).await.unwrap();
+        assert!(config.0.sources_editable);
+        assert_eq!(serde_json::to_value(&config.0).unwrap()["sourcesEditable"], true);
+    }
+
+    async fn raw(port: u16, request: &str) -> String {
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+    }
+
+    #[tokio::test]
+    async fn served_app_refuses_rebound_hosts_and_foreign_origins() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(tmp.path());
+        let meta = Arc::new(Info {
+            name: startup::APP_NAME.into(),
+            version: cli::VERSION.into(),
+            url: String::new(),
+            host: "0.0.0.0".into(),
+            port: 0,
+            pid: 0,
+            mode: "discovered".into(),
+            config_path: None,
+            roots: vec![],
+            sources: vec![],
+            changelog: String::new(),
+            lan_url: None,
+            reused: false,
+        });
+        let guard = Arc::new(Guard { allowed_hosts: vec![], machine_names: vec![], allowed_origins: vec![] });
+        let (cors, _) = cors_layer(&[]);
+        let app = build_app(state, meta, guard, cors);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(listener, app.into_make_service_with_connect_info::<ClientAddr>()).await.unwrap();
+        });
+
+        let ok = raw(port, "GET /api/health HTTP/1.1\r\nHost: 192.168.1.5:3000\r\nConnection: close\r\n\r\n").await;
+        assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
+
+        let rebound =
+            raw(port, "GET /api/specs HTTP/1.1\r\nHost: rebind.attacker.example:3000\r\nConnection: close\r\n\r\n").await;
+        assert!(rebound.starts_with("HTTP/1.1 403"), "{rebound}");
+        assert!(rebound.contains("--allowed-host rebind.attacker.example"), "{rebound}");
+
+        let body = r#"{"title":"t","description":"d"}"#;
+        let csrf = raw(
+            port,
+            &format!(
+                "POST /api/ideas HTTP/1.1\r\nHost: 192.168.1.5:3000\r\nOrigin: http://203.0.113.9\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            ),
+        )
+        .await;
+        assert!(csrf.starts_with("HTTP/1.1 403"), "{csrf}");
     }
 }
-

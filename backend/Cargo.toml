@@ -30,5 +30,9 @@ serde_yaml = "0.9"
 globset = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 
+[target.'cfg(unix)'.dependencies]
+# gethostname(), to accept this machine's own name in the Host check
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"

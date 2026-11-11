@@ -17,6 +17,8 @@ Examples:
   openspec-ui ~/code             Search ~/code for repos with an openspec/ folder
   openspec-ui ./api ./web        Exactly these two repos
   openspec-ui --host 0.0.0.0     Also reachable from your phone on the same network
+  openspec-ui --host 0.0.0.0 --allowed-host board.example.com
+                                 ... and behind a reverse proxy under that name
   openspec-ui --json             For scripts: print one JSON line with the URL
 
 Where the list of projects comes from (first match wins):
@@ -27,7 +29,8 @@ Where the list of projects comes from (first match wins):
   5. the current folder, searched like a PATH
   Edits in the Settings dialog are saved only when a config file is in use
   (1, 3, 4). Otherwise they last until you stop the server; openspec-ui never
-  creates a config file on its own.
+  creates a config file on its own. Sources can be edited only from a browser
+  on this computer; other devices see them read-only.
 
 For scripts and coding agents:
   The first line on stdout is always \"openspec-ui <version> running at <url>\",
@@ -63,6 +66,17 @@ pub struct Args {
     /// use 0.0.0.0 to reach it from other devices (and in Docker)
     #[arg(long, env = "OPENSPEC_UI_HOST", default_value = "127.0.0.1", value_name = "ADDR")]
     pub host: String,
+
+    /// Also answer to this host name (repeatable; the variable takes a comma-
+    /// separated list). Needed behind a reverse proxy, or to open the board
+    /// by a name other than localhost, an IP address or this computer's name
+    #[arg(
+        long = "allowed-host",
+        env = "OPENSPEC_UI_ALLOWED_HOSTS",
+        value_delimiter = ',',
+        value_name = "HOST"
+    )]
+    pub allowed_hosts: Vec<String>,
 
     /// How many folder levels below each PATH to look for repos
     #[arg(long, default_value_t = DEFAULT_DEPTH, value_name = "N")]
@@ -196,6 +210,17 @@ mod tests {
         std::env::remove_var("OPENSPEC_UI_NO_OPEN");
         assert!(Args::try_parse_from(["openspec-ui", "--no-open"]).unwrap().no_open);
         assert!(!Args::try_parse_from(["openspec-ui"]).unwrap().no_open);
+    }
+
+    #[test]
+    fn allowed_hosts_from_flags_and_env() {
+        // Only this test touches OPENSPEC_UI_ALLOWED_HOSTS.
+        let args = Args::try_parse_from(["openspec-ui", "--allowed-host", "a.example", "--allowed-host", "b.lan:8443"]).unwrap();
+        assert_eq!(args.allowed_hosts, vec!["a.example", "b.lan:8443"]);
+        std::env::set_var("OPENSPEC_UI_ALLOWED_HOSTS", "a.example,b.lan");
+        let args = Args::try_parse_from(["openspec-ui"]).unwrap();
+        std::env::remove_var("OPENSPEC_UI_ALLOWED_HOSTS");
+        assert_eq!(args.allowed_hosts, vec!["a.example", "b.lan"]);
     }
 
     #[test]

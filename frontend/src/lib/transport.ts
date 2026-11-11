@@ -8,6 +8,22 @@
  */
 export const IS_DEMO: boolean = __DEMO__;
 
+/**
+ * A readable message for a failed request: the `error` of a JSON body
+ * (`{"error": "..."}`), else a plain-text body (the server's 403 explanations),
+ * else the status code.
+ */
+export function errorMessage(status: number, body: string): string {
+  try {
+    const json = JSON.parse(body);
+    if (json && typeof json.error === 'string' && json.error) return json.error;
+  } catch {
+    // not JSON
+  }
+  const text = body.trim();
+  return text && !text.startsWith('<') ? text : `HTTP ${status}`;
+}
+
 export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   if (__DEMO__) {
     const { demoFetchJson } = await import('../demo/demoTransport');
@@ -16,14 +32,7 @@ export async function fetchJson<T>(url: string, options?: RequestInit): Promise<
 
   const res = await fetch(url, options);
   if (!res.ok) {
-    const text = await res.text();
-    try {
-        const json = JSON.parse(text);
-        if (json.error) throw new Error(json.error);
-    } catch {
-        // If not JSON or no error field, throw status text
-    }
-    throw new Error(`HTTP ${res.status}: ${text}`);
+    throw new Error(errorMessage(res.status, await res.text()));
   }
 
   // Handle empty responses
