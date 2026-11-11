@@ -38,3 +38,40 @@ jobs:
       - name: Lint backend
         working-directory: backend
         run: cargo clippy -- -D warnings
+
+  version:
+    name: Version coherence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/check-version.sh
+
+  launcher:
+    name: npm launcher (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [18, 22]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+        working-directory: npm
+
+  lint-scripts:
+    name: Lint workflows and shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: shellcheck
+        run: |
+          shellcheck --shell=sh install.sh docker/entrypoint.sh
+          shellcheck scripts/check-version.sh
+      - name: actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
