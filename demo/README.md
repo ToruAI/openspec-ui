@@ -3,9 +3,10 @@
 Four small repositories of a fictional company, Fernhill Goods (houseplants and ceramics), each with an `openspec/` directory, so the board shows real work in every stage. Nothing here is a real product.
 
 ```sh
-openspec-ui --config demo/openspec-ui.json
+openspec-ui demo
 # or, from a source checkout
-backend/target/debug/openspec-ui --config demo/openspec-ui.json
+backend/target/debug/openspec-ui demo
+npm run dev            # the same workspace with the Vite dev server
 ```
 
 | Repo | What it is | Active | Archived | Specs | Ideas |
@@ -39,9 +40,7 @@ OPENSPEC_BIN=/path/to/openspec node demo/generate.mjs
 
 The script deletes and rebuilds each `demo/<repo>/` directory, so edit the content in `src/`, not in the generated files. When OpenSpec changes its format, run it with the new version, read the `validate` output, and adjust `lib.mjs` if the artifact layout moved. Commit the regenerated output together with the version bump in `generate.mjs`.
 
-Dates are fixed in the scenario (August to November 2026). Idea cards show relative times ("3d ago"); the static live demo shifts every recorded timestamp when it loads so the newest is about a day old. When serving this workspace with a real server, edit the `createdAt` values in `src/*.mjs` before taking new screenshots.
-
-`screenshots/` holds a reference capture of the board served from this workspace.
+Dates are fixed in the scenario (August to November 2026). Idea cards show relative times ("3d ago"); the static live demo shifts every recorded timestamp when it loads so the newest is about a day old, and `scripts/screenshots.mjs` (the README images in `docs/images/`) pins the browser clock the same way.
 
 ## Static live demo (GitHub Pages)
 

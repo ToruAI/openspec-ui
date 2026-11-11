@@ -7,9 +7,11 @@
     "dev:frontend": "cd frontend && npm run dev",
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "cd frontend && npm run build",
-    "build:backend": "cd backend && cargo build --release"
+    "build:backend": "cd backend && cargo build --release",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "playwright-core": "1.49.0"
   }
 }

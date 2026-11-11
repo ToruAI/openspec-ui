@@ -11,7 +11,7 @@ port="${SMOKE_PORT:-3917}"
 work="$(mktemp -d)"
 trap 'kill "${pid:-}" 2>/dev/null || true; rm -rf "$work"' EXIT
 
-src="$(cygpath -m "$PWD/example-openspec" 2>/dev/null || echo "$PWD/example-openspec")"
+src="$(cygpath -m "$PWD/demo/storefront/openspec" 2>/dev/null || echo "$PWD/demo/storefront/openspec")"
 printf '{"sources":[{"name":"example","path":"%s"}],"port":%s}' "$src" "$port" > "$work/config.json"
 PORT="$port" "$BIN" --config "$work/config.json" &
 pid=$!
