@@ -87,3 +87,5 @@ jobs:
         with:
           name: conformance-fixtures-openspec-${{ env.OPENSPEC_RESOLVED }}
           path: conformance/fixtures
+          # .openspec.yaml markers and .gitkeep files are part of the fixtures.
+          include-hidden-files: true
