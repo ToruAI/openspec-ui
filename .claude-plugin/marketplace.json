@@ -1,0 +1,14 @@
+{
+  "name": "toruai",
+  "owner": { "name": "ToruAI", "url": "https://github.com/ToruAI" },
+  "metadata": { "description": "Tools from ToruAI for working with AI coding agents" },
+  "plugins": [
+    {
+      "name": "openspec-ui",
+      "source": "./",
+      "description": "Start the OpenSpec board from your agent and answer status questions across your repos.",
+      "category": "development",
+      "keywords": ["openspec", "kanban", "dashboard", "spec-driven"]
+    }
+  ]
+}
