@@ -279,6 +279,8 @@ pub fn builtin_schemas() -> &'static Vec<SchemaDef> {
 /// Where schemas are looked up for one OpenSpec root.
 #[derive(Debug, Clone)]
 pub struct SchemaDirs {
+    /// The source's OpenSpec directory: project schemas must stay inside it.
+    root: Root,
     /// `<openspec dir>/schemas`
     project: PathBuf,
     /// `<OpenSpec global data dir>/schemas`
@@ -286,9 +288,10 @@ pub struct SchemaDirs {
 }
 
 impl SchemaDirs {
-    pub fn new(openspec_dir: &Path, global_data_dir: Option<&Path>) -> Self {
+    pub fn new(root: &Root, global_data_dir: Option<&Path>) -> Self {
         SchemaDirs {
-            project: openspec_dir.join("schemas"),
+            root: root.clone(),
+            project: root.path().join("schemas"),
             user: global_data_dir.map(|d| d.join("schemas")),
         }
     }
@@ -307,10 +310,11 @@ impl SchemaDirs {
         if !Self::valid_name(name) {
             return None;
         }
-        std::iter::once(&self.project)
-            .chain(self.user.iter())
-            .map(|dir| dir.join(name).join("schema.yaml"))
-            .find(|path| path.is_file())
+        let project = Some(self.project.join(name).join("schema.yaml"))
+            .filter(|path| self.root.file(path).is_some());
+        // The user-level directory lives outside every project by design.
+        let user = self.user.as_ref().map(|dir| dir.join(name).join("schema.yaml")).filter(|path| path.is_file());
+        project.or(user)
     }
 
     /// Every schema name OpenSpec would accept in `.openspec.yaml` (`listSchemas`).
@@ -323,7 +327,9 @@ impl SchemaDirs {
                     || name.contains(".fork-backup-")
                     || name.starts_with(".init-staging-")
                     || name.contains(".init-backup-");
-                if !transient && entry.path().is_dir() && entry.path().join("schema.yaml").is_file() {
+                let schema = entry.path().join("schema.yaml");
+                let present = if *dir == self.project { self.root.file(&schema).is_some() } else { schema.is_file() };
+                if !transient && entry.path().is_dir() && present {
                     names.insert(name);
                 }
             }
@@ -413,10 +419,11 @@ fn is_iso_date(value: &str) -> bool {
 }
 
 /// Validate `.openspec.yaml` the way OpenSpec's `readChangeMetadata` does. Any
-/// failure here makes `openspec status` refuse the change.
+/// failure here makes `openspec status` refuse the change. A file that
+/// resolves outside the source counts as absent.
 pub fn read_metadata(change_dir: &Path, schemas: &SchemaDirs) -> MetadataRead {
     let path = change_dir.join(METADATA_FILE);
-    if !path.exists() {
+    if !path.exists() || schemas.root.contain(&path).is_none() {
         return MetadataRead::Absent;
     }
     let content = match std::fs::read_to_string(&path) {
@@ -510,12 +517,12 @@ pub fn read_metadata(change_dir: &Path, schemas: &SchemaDirs) -> MetadataRead {
 }
 
 /// `schema:` from `openspec/config.yaml` (or `.yml`), the project default.
-pub fn read_project_default_schema(openspec_dir: &Path) -> Option<String> {
+pub fn read_project_default_schema(openspec_dir: &Path, root: &Root) -> Option<String> {
     let path = ["config.yaml", "config.yml"]
         .iter()
         .map(|f| openspec_dir.join(f))
         .find(|p| p.exists())?;
-    let parsed: Value = serde_yaml::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let parsed: Value = serde_yaml::from_str(&root.read(&path)?).ok()?;
     match parsed.get("schema")? {
         Value::String(s) if !s.is_empty() => Some(s.clone()),
         _ => None,
@@ -711,7 +718,7 @@ pub fn analyze_change(change_dir: &Path, openspec_dir: &Path, schemas: &SchemaDi
             (Some(m.schema.clone()), m.skip_specs, warnings, None)
         }
         MetadataRead::Absent => (
-            Some(read_project_default_schema(openspec_dir).unwrap_or_else(|| DEFAULT_SCHEMA.to_string())),
+            Some(read_project_default_schema(openspec_dir, root).unwrap_or_else(|| DEFAULT_SCHEMA.to_string())),
             false,
             Vec::new(),
             None,
@@ -865,7 +872,7 @@ fn looks_like_change(dir: &Path, openspec_dir: &Path, schemas: &SchemaDirs, root
         MetadataRead::Valid(m) => m.schema,
         MetadataRead::Invalid(_) => return false,
         MetadataRead::Absent => {
-            read_project_default_schema(openspec_dir).unwrap_or_else(|| DEFAULT_SCHEMA.into())
+            read_project_default_schema(openspec_dir, root).unwrap_or_else(|| DEFAULT_SCHEMA.into())
         }
     };
     schemas

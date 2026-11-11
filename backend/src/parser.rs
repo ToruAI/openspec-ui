@@ -304,10 +304,11 @@ struct SourceScan {
 
 impl SourceScan {
     fn new(source_path: &Path, options: &ScanOptions) -> Option<SourceScan> {
+        let root = Root::new(source_path)?;
         Some(SourceScan {
             dir: source_path.to_path_buf(),
-            root: Root::new(source_path)?,
-            schemas: workflow::SchemaDirs::new(source_path, options.global_data_dir.as_deref()),
+            schemas: workflow::SchemaDirs::new(&root, options.global_data_dir.as_deref()),
+            root,
         })
     }
 }
@@ -519,8 +520,10 @@ pub struct PlanningRoot {
     pub problem: Option<String>,
 }
 
-fn yaml_string_field(path: &Path, key: &str) -> Result<Option<String>, ()> {
-    let Ok(content) = std::fs::read_to_string(path) else {
+/// A string field of a YAML file that stays inside `root` (a file outside
+/// it counts as absent).
+fn yaml_string_field(root: Option<&Root>, path: &Path, key: &str) -> Result<Option<String>, ()> {
+    let Some(content) = root.and_then(|r| r.read(path)) else {
         return Ok(None);
     };
     let value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|_| ())?;
@@ -542,7 +545,7 @@ pub fn inspect_planning_root(source_path: &Path, options: &ScanOptions) -> Plann
     if identity.is_file() {
         return PlanningRoot {
             kind: PlanningKind::Store,
-            store_id: yaml_string_field(&identity, "id").ok().flatten(),
+            store_id: yaml_string_field(Root::new(parent).as_ref(), &identity, "id").ok().flatten(),
             ..local
         };
     }
@@ -558,7 +561,7 @@ pub fn inspect_planning_root(source_path: &Path, options: &ScanOptions) -> Plann
     let Some(config) = ["config.yaml", "config.yml"].iter().map(|f| source_path.join(f)).find(|p| p.exists()) else {
         return local;
     };
-    let store_id = match yaml_string_field(&config, "store") {
+    let store_id = match yaml_string_field(Root::new(source_path).as_ref(), &config, "store") {
         Ok(Some(id)) => id,
         Ok(None) => return local,
         Err(()) => {
@@ -1156,6 +1159,41 @@ Description"#;
         assert!(get_change_detail_with(&src, "repo", "linked", &options).is_none());
         assert!(get_spec_detail(&src, "repo", "leak").is_none());
         assert!(scan_specs(&src, "repo").is_empty(), "out-of-source specs are not listed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_yaml_out_of_the_source_is_not_read() {
+        use std::os::unix::fs::symlink;
+        let t = TempOpenSpec::new("symlink-yaml");
+        let src = t.openspec();
+        let secret = outside_file(&t, "secret.txt", "TOP-SECRET-LINE\n");
+        let mapping = outside_file(&t, "secret.yaml", "schema: TOP-SECRET-SCHEMA\nstore: TOP-SECRET-STORE\nid: TOP-SECRET-ID\n");
+
+        // A project schema that is a symlink out of the source.
+        std::fs::create_dir_all(src.join("schemas/leak")).unwrap();
+        symlink(&secret, src.join("schemas/leak/schema.yaml")).unwrap();
+        t.write("changes/a/.openspec.yaml", "schema: leak\n");
+        t.write("changes/a/proposal.md", "# p\n");
+        // Change metadata that is a symlink out of the source.
+        t.write("changes/b/proposal.md", "# p\n");
+        symlink(&mapping, src.join("changes/b/.openspec.yaml")).unwrap();
+
+        let json = serde_json::to_string(&t.scan()).unwrap();
+        assert!(!json.contains("TOP-SECRET"), "{json}");
+        assert_eq!(t.change("b").schema.as_deref(), Some("spec-driven"), "outside metadata counts as absent");
+
+        // Project config and store identity pointing out of the source.
+        let t2 = TempOpenSpec::new("symlink-yaml-config");
+        let src2 = t2.openspec();
+        std::fs::remove_dir_all(src2.join("changes")).unwrap();
+        symlink(&mapping, src2.join("config.yaml")).unwrap();
+        let planning = inspect_planning_root(&src2, &ScanOptions { global_data_dir: None });
+        assert!(!format!("{planning:?}").contains("TOP-SECRET"), "{planning:?}");
+        std::fs::create_dir_all(t2.0.join(".openspec-store")).unwrap();
+        symlink(&mapping, t2.0.join(".openspec-store/store.yaml")).unwrap();
+        let planning = inspect_planning_root(&src2, &ScanOptions { global_data_dir: None });
+        assert!(!format!("{planning:?}").contains("TOP-SECRET"), "{planning:?}");
     }
 
     #[cfg(unix)]
