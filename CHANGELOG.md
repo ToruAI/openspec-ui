@@ -6,6 +6,8 @@ The version number lives in `VERSION` and is stamped on `main` at merge — pull
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-11
+
 A relaunch: start it with one command in any folder, a board that uses OpenSpec's own stages, and a parser checked against the real OpenSpec CLI on every pull request and every week.
 
 ### Added
