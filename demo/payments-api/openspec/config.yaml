@@ -1,0 +1,7 @@
+schema: spec-driven
+
+context: |
+  payments-api is the only service that talks to payment providers; storefront and mobile-app call it over HTTPS.
+  Go 1.23, Postgres, one worker process for webhooks and retries. Amounts are integers in minor units with an ISO 4217 currency code.
+  Card data never touches this service: we only handle provider tokens and payment intent ids.
+  Every endpoint that creates money movement must be idempotent and must write an audit row.
