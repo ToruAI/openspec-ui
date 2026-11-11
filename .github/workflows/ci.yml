@@ -37,7 +37,7 @@ jobs:
 
       - name: Lint backend
         working-directory: backend
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
   version:
     name: Version coherence
