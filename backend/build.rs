@@ -34,4 +34,17 @@ fn main() {
     };
 
     println!("cargo:rustc-env=OPENSPEC_UI_VERSION={version}");
+
+    // The frontend is embedded from ../frontend/dist. Without that folder the
+    // crate does not compile, which breaks `cargo test` and `npm run dev` on a
+    // fresh clone. Create it empty and say so; release builds are guarded by a
+    // smoke test that checks the embedded UI is really there.
+    let dist = Path::new(&manifest_dir).join("..").join("frontend").join("dist");
+    if !dist.exists() {
+        if fs::create_dir_all(&dist).is_ok() {
+            println!(
+                "cargo:warning=frontend/dist was missing; built without the web UI. Run `npm run build` in frontend/ and rebuild to embed it"
+            );
+        }
+    }
 }
