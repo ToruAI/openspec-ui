@@ -1,62 +1,54 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { TouchEvent } from 'react';
+import { ChevronLeft, FolderOpen, Columns3, Rows3, Plus, SearchX, Sparkles, AlertTriangle } from 'lucide-react';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import type { Source, Change, ChangeStatus, Idea } from '../types';
+import type { Source, Change, Idea } from '../types';
 import { ChangeCard } from './ChangeCard';
 import { IdeaCard } from './IdeaCard';
 import { ColumnSkeleton } from './LoadingSkeleton';
 import { SearchBar } from './SearchBar';
-import { SortDropdown, type SortOption } from './SortDropdown';
+import { SortDropdown } from './SortDropdown';
+import { WorkspaceOverview } from './WorkspaceOverview';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Lightbulb, 
-  ListTodo, 
-  Loader, 
-  CheckCircle2, 
-  Archive,
-  FolderOpen,
-  Sparkles
-} from 'lucide-react';
+import {
+  ACTIVE_STAGES,
+  IDEAS_META,
+  STAGES,
+  defaultMobileStage,
+  matchesQuery,
+  repoColor,
+  repoSummaries,
+  sortChanges,
+  stageOf,
+  type SortOption,
+  type Stage,
+} from '@/lib/board';
 
-const ARCHIVED_COLUMN = {
-  label: 'Archived',
-  icon: <Archive className="h-4 w-4" />,
-  color: 'text-gray-500'
-};
+type ColumnKey = Stage | 'ideas';
+type Layout = 'columns' | 'lanes';
 
-const COLUMN_CONFIG: { status: ChangeStatus; label: string; icon: React.ReactNode; color: string }[] = [
-  { 
-    status: 'todo', 
-    label: 'Todo', 
-    icon: <ListTodo className="h-4 w-4" />,
-    color: 'text-blue-500'
-  },
-  { 
-    status: 'in_progress', 
-    label: 'In Progress', 
-    icon: <Loader className="h-4 w-4" />,
-    color: 'text-amber-500'
-  },
-  { 
-    status: 'done', 
-    label: 'Done', 
-    icon: <CheckCircle2 className="h-4 w-4" />,
-    color: 'text-emerald-500'
-  },
-];
+const LAYOUT_KEY = 'openspec-board-layout';
+const IDEAS_OPEN_KEY = 'openspec-ideas-open';
+const SORT_KEY = 'openspec-sort';
+export const SEARCH_INPUT_ID = 'board-search';
 
-const IDEAS_COLUMN = {
-  label: 'Ideas',
-  icon: <Lightbulb className="h-4 w-4" />,
-  color: 'text-violet-500'
-};
+function readStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const value = localStorage.getItem(key);
+    return allowed.includes(value as T) ? (value as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
-type Column = 
-  | { type: 'ideas'; label: string; icon: React.ReactNode; color: string }
-  | { type: 'archived' | 'status'; status: ChangeStatus; label: string; icon: React.ReactNode; color: string };
+function store(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Private mode or blocked storage: the preference just isn't remembered.
+  }
+}
 
 interface KanbanBoardProps {
   changes: Change[];
@@ -67,8 +59,10 @@ interface KanbanBoardProps {
   onCardClick: (change: Change) => void;
   onIdeaClick?: (idea: Idea) => void;
   selectedSourceId: string | null;
+  onSourceChange?: (id: string | null) => void;
   showArchived?: boolean;
   onOpenSettings?: () => void;
+  onNewIdea?: () => void;
   /** Folders the server searched (zero-config mode), for the empty state */
   searchedRoots?: string[];
 }
@@ -76,7 +70,7 @@ interface KanbanBoardProps {
 function EmptySourcesHint({ searchedRoots }: { searchedRoots?: string[] }) {
   const searched = searchedRoots && searchedRoots.length > 0 ? searchedRoots.join(', ') : null;
   return (
-    <div className="text-sm text-muted-foreground/80 mt-2 space-y-3 max-w-md">
+    <div className="text-sm text-muted-foreground mt-2 space-y-3 max-w-md">
       <p>
         {searched ? (
           <>Nothing with an <code className="font-mono">openspec/</code> folder was found in <code className="font-mono break-all">{searched}</code>.</>
@@ -84,528 +78,545 @@ function EmptySourcesHint({ searchedRoots }: { searchedRoots?: string[] }) {
           <>Add the folder of a repo that uses OpenSpec.</>
         )}
       </p>
-      <div className="text-left inline-block rounded-lg bg-muted/50 px-4 py-3 font-mono text-xs space-y-1">
-        <div><span className="text-muted-foreground/60">$</span> openspec-ui ~/code <span className="text-muted-foreground/60"># search another folder</span></div>
-        <div><span className="text-muted-foreground/60">$</span> openspec init <span className="text-muted-foreground/60"># start OpenSpec in a repo</span></div>
+      <div className="text-left inline-block rounded-lg bg-muted/60 px-4 py-3 font-mono text-xs space-y-1">
+        <div><span className="text-muted-foreground/70">$</span> openspec-ui ~/code <span className="text-muted-foreground/70"># search another folder</span></div>
+        <div><span className="text-muted-foreground/70">$</span> openspec init <span className="text-muted-foreground/70"># start OpenSpec in a repo</span></div>
       </div>
     </div>
   );
 }
 
-export function KanbanBoard({ 
-  changes, 
-  ideas, 
+function CenteredMessage({ icon, title, children }: { icon: React.ReactNode; title: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-64 py-12 px-4 gap-4 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground">{icon}</div>
+      <div className="flex flex-col items-center">
+        <h2 className="text-foreground text-lg font-semibold">{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function columnMeta(key: ColumnKey) {
+  return key === 'ideas' ? IDEAS_META : STAGES[key];
+}
+
+function ColumnHeader({
+  columnKey,
+  count,
+  action,
+}: {
+  columnKey: ColumnKey;
+  count: number;
+  action?: React.ReactNode;
+}) {
+  const { label, hint, Icon, color } = columnMeta(columnKey);
+  return (
+    <div className="flex items-center gap-2 h-9 px-1" title={hint}>
+      <Icon className={cn('h-4 w-4 shrink-0', color)} aria-hidden />
+      <h2 className="text-[13px] font-semibold text-foreground truncate">{label}</h2>
+      <span className="text-xs tabular-nums text-muted-foreground" aria-label={`${count} ${count === 1 ? 'item' : 'items'}`}>
+        {count}
+      </span>
+      {action && <div className="ml-auto flex items-center">{action}</div>}
+    </div>
+  );
+}
+
+function EmptyColumn({ columnKey }: { columnKey: ColumnKey }) {
+  const text: Record<ColumnKey, string> = {
+    ideas: 'No ideas',
+    planning: 'Nothing being planned',
+    ready: 'Nothing waiting to start',
+    in_progress: 'Nothing in progress',
+    complete: 'Nothing waiting to be archived',
+    archived: 'Nothing archived',
+  };
+  return (
+    <div className="rounded-lg border border-dashed border-border/80 px-3 py-6 text-center text-xs text-muted-foreground">
+      {text[columnKey]}
+    </div>
+  );
+}
+
+function LayoutToggle({ layout, onChange }: { layout: Layout; onChange: (l: Layout) => void }) {
+  const options: { value: Layout; label: string; Icon: typeof Columns3 }[] = [
+    { value: 'columns', label: 'Stages', Icon: Columns3 },
+    { value: 'lanes', label: 'By repo', Icon: Rows3 },
+  ];
+  return (
+    <div className="flex h-9 items-center rounded-md border border-border/70 bg-background/50 p-0.5" role="group" aria-label="Board layout">
+      {options.map(({ value, label, Icon }) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={layout === value}
+          onClick={() => onChange(value)}
+          className={cn(
+            'flex h-full items-center gap-1.5 rounded px-2.5 text-xs transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            layout === value ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Icon className="h-3.5 w-3.5" aria-hidden />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function KanbanBoard({
+  changes,
+  ideas,
   sources,
-  loading = false, 
-  error = null, 
-  onCardClick, 
-  onIdeaClick, 
-  selectedSourceId, 
+  loading = false,
+  error = null,
+  onCardClick,
+  onIdeaClick,
+  selectedSourceId,
+  onSourceChange,
   showArchived = false,
   onOpenSettings,
+  onNewIdea,
   searchedRoots,
 }: KanbanBoardProps) {
   const isMobile = useIsMobile();
-  const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<SortOption>('name-asc');
+  const [sortBy, setSortByState] = useState<SortOption>(() =>
+    readStored(SORT_KEY, ['name-asc', 'name-desc', 'progress-asc', 'progress-desc'] as const, 'name-asc')
+  );
+  const [layout, setLayoutState] = useState<Layout>(() => readStored(LAYOUT_KEY, ['columns', 'lanes'] as const, 'columns'));
+  const [ideasOpen, setIdeasOpenState] = useState(() => readStored(IDEAS_OPEN_KEY, ['true', 'false'] as const, 'false') === 'true');
+  const [mobileColumn, setMobileColumn] = useState<ColumnKey | null>(null);
 
-  // Build columns array based on showArchived - Ideas column is always first
-  const COLUMNS: Column[] = [
-    { type: 'ideas', ...IDEAS_COLUMN },
-    ...COLUMN_CONFIG.map(col => ({ type: 'status' as const, ...col })),
-  ];
-  
-  if (showArchived) {
-    COLUMNS.push({ type: 'archived', status: 'archived', ...ARCHIVED_COLUMN });
-  }
+  const setSortBy = (value: SortOption) => {
+    setSortByState(value);
+    store(SORT_KEY, value);
+  };
+  const setLayout = (value: Layout) => {
+    setLayoutState(value);
+    store(LAYOUT_KEY, value);
+  };
+  const setIdeasOpen = (open: boolean) => {
+    setIdeasOpenState(open);
+    store(IDEAS_OPEN_KEY, String(open));
+  };
 
-  // Reset active column index if it's out of bounds when columns change
-  useEffect(() => {
-    setActiveColumnIndex(prev => {
-      if (prev >= COLUMNS.length) {
-        return COLUMNS.length - 1;
-      }
-      return prev;
-    });
-  }, [COLUMNS.length]);
+  const multiRepo = sources.length > 1;
+  const colorOf = (id: string) => repoColor(sources, id);
+  const nameOf = (id: string) => sources.find((s) => s.id === id)?.name ?? id;
 
-  // Filter changes by selected source and archived status
-  const filteredChanges = useMemo(() => {
-    let result = selectedSourceId
-      ? changes.filter((c) => c.sourceId === selectedSourceId)
-      : changes;
+  // The overview counts the whole workspace, regardless of filter and search.
+  const summaries = useMemo(() => repoSummaries(sources, changes), [sources, changes]);
 
-    // Filter out archived changes when showArchived is false
-    if (!showArchived) {
-      result = result.filter((c) => c.status !== 'archived');
-    }
-    
-    // Filter out draft changes (now removed - use Ideas column instead)
-    result = result.filter((c) => c.status !== 'draft');
+  const visibleChanges = useMemo(() => {
+    const filtered = changes.filter(
+      (c) =>
+        (!selectedSourceId || c.sourceId === selectedSourceId) &&
+        (showArchived || c.status !== 'archived') &&
+        matchesQuery(c, searchQuery)
+    );
+    return sortChanges(filtered, sortBy);
+  }, [changes, selectedSourceId, showArchived, searchQuery, sortBy]);
 
-    // Apply search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter((c) =>
-        c.name.toLowerCase().includes(query) ||
-        c.sourceId.toLowerCase().includes(query)
-      );
-    }
-
-    return result;
-  }, [changes, selectedSourceId, showArchived, searchQuery]);
-
-  // Filter ideas by selected source
-  const filteredIdeas = useMemo(() => {
-    let result = ideas;
-    
-    // Filter by selected source
-    if (selectedSourceId) {
-      result = result.filter((idea) => idea.sourceId === selectedSourceId);
-    }
-    
-    // Apply search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter((idea) =>
-        idea.title.toLowerCase().includes(query) ||
-        idea.description.toLowerCase().includes(query) ||
-        idea.sourceId.toLowerCase().includes(query)
-      );
-    }
-    
-    return result;
+  const visibleIdeas = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return ideas.filter(
+      (idea) =>
+        (!selectedSourceId || idea.sourceId === selectedSourceId) &&
+        (!q || [idea.title, idea.description, idea.sourceId].some((f) => f.toLowerCase().includes(q)))
+    );
   }, [ideas, selectedSourceId, searchQuery]);
 
-  // Apply sorting
-  const sortedChanges = useMemo(() => {
-    const result = [...filteredChanges];
-    if (sortBy === 'name-asc') {
-      result.sort((a, b) => a.name.localeCompare(b.name));
-    } else if (sortBy === 'name-desc') {
-      result.sort((a, b) => b.name.localeCompare(a.name));
-    } else if (sortBy === 'progress-asc') {
-      result.sort((a, b) => {
-        const aProgress = a.taskStats ? a.taskStats.done / a.taskStats.total : 0;
-        const bProgress = b.taskStats ? b.taskStats.done / b.taskStats.total : 0;
-        return aProgress - bProgress;
-      });
-    } else if (sortBy === 'progress-desc') {
-      result.sort((a, b) => {
-        const aProgress = a.taskStats ? a.taskStats.done / a.taskStats.total : 0;
-        const bProgress = b.taskStats ? b.taskStats.done / b.taskStats.total : 0;
-        return bProgress - aProgress;
-      });
-    }
-    return result;
-  }, [filteredChanges, sortBy]);
+  const byColumn = useMemo(() => {
+    const groups: Record<Stage, Change[]> = { planning: [], ready: [], in_progress: [], complete: [], archived: [] };
+    for (const change of visibleChanges) groups[stageOf(change)].push(change);
+    // Most recently archived first: the folder name starts with the date.
+    groups.archived.sort((a, b) => b.name.localeCompare(a.name));
+    return groups;
+  }, [visibleChanges]);
 
-  // Swipe handling with drag offset
-  const touchStartX = useRef<number>(0);
-  const touchCurrentX = useRef<number>(0);
+  const hasIdeas = ideas.some((i) => !selectedSourceId || i.sourceId === selectedSourceId);
+  const columns: ColumnKey[] = [
+    ...(hasIdeas ? (['ideas'] as const) : []),
+    ...ACTIVE_STAGES,
+    ...(showArchived ? (['archived'] as const) : []),
+  ];
+  const countOf = (key: ColumnKey) => (key === 'ideas' ? visibleIdeas.length : byColumn[key].length);
+
+  // Keep the active stage tab visible in its strip. Horizontal only, and only
+  // when the active tab changes, so live updates never move the page.
+  const scrolledTo = useRef<ColumnKey | null>(null);
+  const keepInView = (key: ColumnKey) => (el: HTMLButtonElement | null) => {
+    const strip = el?.parentElement;
+    if (!el || !strip || scrolledTo.current === key) return;
+    scrolledTo.current = key;
+    strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.offsetWidth) / 2;
+  };
+
+  // Swipe between columns on a phone.
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
   const [dragOffset, setDragOffset] = useState(0);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const handleTouchStart = (e: TouchEvent) => {
-    if (isAnimating) return;
-    touchStartX.current = e.touches[0].clientX;
-    touchCurrentX.current = e.touches[0].clientX;
-  };
-
-  const handleTouchMove = (e: TouchEvent) => {
-    if (isAnimating) return;
-    touchCurrentX.current = e.touches[0].clientX;
-    const diff = touchCurrentX.current - touchStartX.current;
-    
-    // Add resistance at edges
-    const isAtStart = activeColumnIndex === 0 && diff > 0;
-    const isAtEnd = activeColumnIndex === COLUMNS.length - 1 && diff < 0;
-    
-    if (isAtStart || isAtEnd) {
-      setDragOffset(diff * 0.3); // Rubber band effect
-    } else {
-      setDragOffset(diff);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (isAnimating) return;
-    
-    const diff = touchStartX.current - touchCurrentX.current;
-    const threshold = 60;
-    const containerWidth = containerRef.current?.offsetWidth || 300;
-
-    setIsAnimating(true);
-
-    if (Math.abs(diff) > threshold) {
-      if (diff > 0 && activeColumnIndex < COLUMNS.length - 1) {
-        // Swipe left - next column
-        setDragOffset(-containerWidth);
-        setTimeout(() => {
-          setActiveColumnIndex(prev => prev + 1);
-          setDragOffset(0);
-          setIsAnimating(false);
-        }, 200);
-      } else if (diff < 0 && activeColumnIndex > 0) {
-        // Swipe right - previous column
-        setDragOffset(containerWidth);
-        setTimeout(() => {
-          setActiveColumnIndex(prev => prev - 1);
-          setDragOffset(0);
-          setIsAnimating(false);
-        }, 200);
-      } else {
-        // Bounce back
-        setDragOffset(0);
-        setTimeout(() => setIsAnimating(false), 200);
-      }
-    } else {
-      // Bounce back
-      setDragOffset(0);
-      setTimeout(() => setIsAnimating(false), 200);
-    }
-  };
-
-  const goToPrevColumn = useCallback(() => {
-    if (activeColumnIndex > 0 && !isAnimating) {
-      setIsAnimating(true);
-      setActiveColumnIndex(prev => prev - 1);
-      setTimeout(() => setIsAnimating(false), 200);
-    }
-  }, [activeColumnIndex, isAnimating]);
-
-  const goToNextColumn = useCallback(() => {
-    if (activeColumnIndex < COLUMNS.length - 1 && !isAnimating) {
-      setIsAnimating(true);
-      setActiveColumnIndex(prev => prev + 1);
-      setTimeout(() => setIsAnimating(false), 200);
-    }
-  }, [activeColumnIndex, COLUMNS.length, isAnimating]);
 
   if (loading) {
     return (
       <div className="flex gap-4 pb-4">
-        {COLUMNS.map((_, i) => <ColumnSkeleton key={i} />)}
+        {(isMobile ? [0] : [0, 1, 2, 3]).map((i) => <ColumnSkeleton key={i} />)}
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center">
-          <span className="text-3xl">⚠️</span>
-        </div>
-        <div className="text-destructive font-medium">Error loading changes</div>
-        <div className="text-sm text-muted-foreground">{error.message}</div>
-        <Button onClick={() => window.location.reload()} variant="outline" size="sm" className="mt-2">
-          Try Again
+      <CenteredMessage icon={<AlertTriangle className="h-8 w-8 text-destructive" />} title="Error loading changes">
+        <p className="text-sm text-muted-foreground mt-1">{error.message}</p>
+        <Button onClick={() => window.location.reload()} variant="outline" size="sm" className="mt-4">
+          Try again
         </Button>
-      </div>
+      </CenteredMessage>
     );
   }
 
-  const hasNoSources = sources.length === 0;
-  const hasAnyItems = sortedChanges.length > 0 || filteredIdeas.length > 0;
-  
-  if (!hasAnyItems) {
+  if (sources.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-64 py-10 px-4 gap-4">
-        <div className="w-20 h-20 rounded-2xl bg-muted/50 flex items-center justify-center">
-          {hasNoSources ? (
-            <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
-          ) : (
-            <Sparkles className="h-10 w-10 text-muted-foreground/50" />
-          )}
-        </div>
-        <div className="text-center">
-          <div className="text-muted-foreground text-lg font-medium">
-            {hasNoSources
-              ? "No OpenSpec projects found"
-              : selectedSourceId
-                ? "No changes found for this project"
-                : searchQuery
-                  ? "No items found matching your search"
-                  : "No items found"
-            }
-          </div>
-          {hasNoSources ? (
-            <EmptySourcesHint searchedRoots={searchedRoots} />
-          ) : (
-            <p className="text-sm text-muted-foreground/70 mt-1">
-              Try adjusting your filters or create a new idea
-            </p>
-          )}
-        </div>
-        {hasNoSources && (
-          <Button onClick={onOpenSettings} size="sm" className="mt-2">
-            <FolderOpen className="h-4 w-4 mr-2" />
-            Add a project folder
-          </Button>
-        )}
-        {searchQuery && !hasAnyItems && !hasNoSources && (
-          <Button onClick={() => setSearchQuery('')} variant="outline" size="sm">
-            Clear Search
-          </Button>
-        )}
-      </div>
+      <CenteredMessage icon={<FolderOpen className="h-8 w-8" />} title="No OpenSpec projects found">
+        <EmptySourcesHint searchedRoots={searchedRoots} />
+        <Button onClick={onOpenSettings} size="sm" className="mt-5">
+          <FolderOpen className="h-4 w-4 mr-2" />
+          Add a project folder
+        </Button>
+      </CenteredMessage>
     );
   }
 
-  // Mobile: Single column with swipe
-  if (isMobile) {
-    const activeColumn = COLUMNS[activeColumnIndex];
-    const isIdeasColumn = (activeColumn as any).type === 'ideas';
-    const isArchivedColumn = (activeColumn as any).type === 'archived';
-    
-    let columnItems: (Change | Idea)[] = [];
-    if (isIdeasColumn) {
-      columnItems = filteredIdeas;
-    } else if (isArchivedColumn) {
-      columnItems = sortedChanges.filter((c) => c.status === 'archived');
-    } else {
-      columnItems = sortedChanges.filter((c) => c.status === (activeColumn as { status: ChangeStatus }).status);
-    }
-    
-    const totalCount = columnItems.length;
-
+  const scopedChanges = changes.filter((c) => !selectedSourceId || c.sourceId === selectedSourceId);
+  if (scopedChanges.length === 0 && !hasIdeas) {
+    const where = selectedSourceId ? nameOf(selectedSourceId) : multiRepo ? 'these repos' : sources[0].name;
     return (
-      <div className="flex flex-col h-[calc(100dvh-8rem)]">
-        {/* Search */}
-        <div className="px-1 pb-3">
-          <SearchBar
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="Search changes..."
+      <div className="flex flex-col gap-4">
+        {multiRepo && onSourceChange && (
+          <WorkspaceOverview
+            total={summaries.total}
+            repos={summaries.repos}
+            selectedId={selectedSourceId}
+            onSelect={onSourceChange}
+            colorOf={colorOf}
+            compact={isMobile}
           />
-        </div>
+        )}
+        <CenteredMessage icon={<Sparkles className="h-8 w-8" />} title={`No changes in ${where} yet`}>
+          <p className="text-sm text-muted-foreground mt-1 max-w-md">
+            Changes appear here as soon as they exist under <code className="font-mono text-xs">openspec/changes/</code>,
+            whether your AI assistant proposes one or you start it yourself:
+          </p>
+          <div className="mt-3 rounded-lg bg-muted/60 px-4 py-3 font-mono text-xs text-left">
+            <span className="text-muted-foreground/70">$</span> openspec new change add-dark-mode
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">The board updates live; no need to reload.</p>
+        </CenteredMessage>
+      </div>
+    );
+  }
 
-        {/* Column tabs with navigation */}
-        <div className="flex items-center justify-between px-1 pb-3">
-          <button
-            onClick={goToPrevColumn}
-            disabled={activeColumnIndex === 0}
-            className={cn(
-              "p-2 rounded-full transition-all",
-              activeColumnIndex === 0
-                ? "text-muted-foreground/30"
-                : "text-foreground hover:bg-muted active:scale-95"
-            )}
-            aria-label="Previous column"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-          
-          <div className="flex flex-col items-center gap-1.5">
-            {/* Pill tabs */}
-            <div className="flex bg-muted/50 rounded-full p-1 gap-0.5">
-              {COLUMNS.map((col, idx) => {
-                const isIdeasColumn = (col as any).type === 'ideas';
-                const isArchivedColumn = (col as any).type === 'archived';
-                let colItems: (Change | Idea)[] = [];
-                
-                if (isIdeasColumn) {
-                  colItems = filteredIdeas;
-                } else if (isArchivedColumn) {
-                  colItems = sortedChanges.filter((c) => c.status === 'archived');
-                } else {
-                  // Must be a status column
-                  colItems = sortedChanges.filter((c) => c.status === (col as { status: ChangeStatus }).status);
-                }
-                
-                const totalCount = colItems.length;
-                
+  const noMatches = searchQuery !== '' && visibleChanges.length === 0 && visibleIdeas.length === 0;
+  const repoFor = (change: Change) =>
+    multiRepo && !selectedSourceId ? { name: nameOf(change.sourceId), color: colorOf(change.sourceId) } : null;
+
+  const renderItems = (key: ColumnKey, items: (Change | Idea)[], withRepo: boolean) => (
+    <>
+      {items.map((item) =>
+        'status' in item ? (
+          <ChangeCard
+            key={item.id}
+            change={item}
+            onClick={() => onCardClick(item)}
+            repo={withRepo ? repoFor(item) : null}
+          />
+        ) : (
+          <IdeaCard key={item.id} idea={item} onClick={() => onIdeaClick?.(item)} />
+        )
+      )}
+      {items.length === 0 && <EmptyColumn columnKey={key} />}
+    </>
+  );
+
+  const itemsOf = (key: ColumnKey, sourceId?: string): (Change | Idea)[] => {
+    const all = key === 'ideas' ? visibleIdeas : byColumn[key];
+    return sourceId ? all.filter((i) => i.sourceId === sourceId) : all;
+  };
+
+  const overview = multiRepo && onSourceChange && (
+    <WorkspaceOverview
+      total={summaries.total}
+      repos={summaries.repos}
+      selectedId={selectedSourceId}
+      onSelect={onSourceChange}
+      colorOf={colorOf}
+      compact={isMobile}
+    />
+  );
+
+  // ------------------------------------------------------------------ phone
+  if (isMobile) {
+    const mobileColumns = [...columns.filter((k) => k !== 'ideas'), ...columns.filter((k) => k === 'ideas')];
+    const active: ColumnKey =
+      mobileColumn && mobileColumns.includes(mobileColumn)
+        ? mobileColumn
+        : (defaultMobileStage(Object.fromEntries(mobileColumns.map((k) => [k, countOf(k)]))) as ColumnKey);
+    const activeIndex = Math.max(0, mobileColumns.indexOf(active));
+    const items = itemsOf(active);
+
+    const go = (index: number) => {
+      setMobileColumn(mobileColumns[Math.min(mobileColumns.length - 1, Math.max(0, index))]);
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const dx = e.touches[0].clientX - touchStartX.current;
+      const dy = e.touches[0].clientY - touchStartY.current;
+      if (Math.abs(dx) > Math.abs(dy)) setDragOffset(dx * 0.4);
+    };
+    const onTouchEnd = () => {
+      if (dragOffset < -28) go(activeIndex + 1);
+      else if (dragOffset > 28) go(activeIndex - 1);
+      setDragOffset(0);
+    };
+
+    return (
+      <div className="flex flex-col gap-3">
+        {overview}
+        <div
+          role="tablist"
+          aria-label="Stages"
+          className="-mx-4 flex gap-1 overflow-x-auto border-b border-border/70 px-4 [scrollbar-width:none]"
+        >
+          {mobileColumns.map((key) => {
+            const { label, Icon, color } = columnMeta(key);
+            const selected = key === active;
+            return (
+              <button
+                key={key}
+                id={`stage-tab-${key}`}
+                role="tab"
+                type="button"
+                aria-selected={selected}
+                aria-controls="stage-panel"
+                onClick={() => go(mobileColumns.indexOf(key))}
+                ref={selected ? keepInView(key) : undefined}
+                className={cn(
+                  '-mb-px flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-2 text-[13px] transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+                  selected ? 'border-foreground text-foreground font-semibold' : 'border-transparent text-muted-foreground'
+                )}
+              >
+                <Icon className={cn('h-3.5 w-3.5', color)} aria-hidden />
+                {label}
+                <span className="tabular-nums text-xs text-muted-foreground font-normal">{countOf(key)}</span>
+              </button>
+            );
+          })}
+        </div>
+        <SearchBar id={SEARCH_INPUT_ID} value={searchQuery} onChange={setSearchQuery} placeholder="Search changes" />
+        <div
+          id="stage-panel"
+          role="tabpanel"
+          aria-labelledby={`stage-tab-${active}`}
+          className="flex flex-col gap-2 pb-6 transition-transform duration-150"
+          style={{ transform: dragOffset ? `translateX(${dragOffset}px)` : undefined }}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+        >
+          <p className="text-xs text-muted-foreground px-0.5">{columnMeta(active).hint}</p>
+          {active === 'ideas' && onNewIdea && (
+            <Button variant="outline" size="sm" className="self-start" onClick={onNewIdea}>
+              <Plus className="h-4 w-4 mr-1" /> New idea
+            </Button>
+          )}
+          {noMatches ? <NoMatches query={searchQuery} onClear={() => setSearchQuery('')} /> : renderItems(active, items, true)}
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------- desktop
+  const lanes = multiRepo && !selectedSourceId && layout === 'lanes';
+  const stageColumns = columns.filter((k) => k !== 'ideas');
+  const ideasColumn = hasIdeas;
+  const singleRepo = !multiRepo ? sources[0] : null;
+
+  const ideasRail = (
+    <button
+      type="button"
+      onClick={() => setIdeasOpen(true)}
+      aria-expanded={false}
+      aria-label={`Show ideas (${visibleIdeas.length})`}
+      title={IDEAS_META.hint}
+      className={cn(
+        'flex w-10 shrink-0 self-start flex-col items-center gap-2 rounded-lg border border-border/70 bg-card/40 py-3 text-muted-foreground',
+        'hover:border-foreground/20 hover:text-foreground transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+      )}
+    >
+      <IDEAS_META.Icon className={cn('h-4 w-4', IDEAS_META.color)} aria-hidden />
+      <span className="text-xs tabular-nums">{visibleIdeas.length}</span>
+      <span className="text-xs font-medium [writing-mode:vertical-rl] rotate-180">Ideas</span>
+    </button>
+  );
+
+  const ideasToggle = (
+    <button
+      type="button"
+      onClick={() => setIdeasOpen(true)}
+      aria-expanded={false}
+      aria-label={`Show ideas (${visibleIdeas.length})`}
+      title={IDEAS_META.hint}
+      className="flex h-9 w-10 items-center justify-center gap-1 rounded-md text-xs tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <IDEAS_META.Icon className={cn('h-4 w-4', IDEAS_META.color)} aria-hidden />
+      {visibleIdeas.length}
+    </button>
+  );
+
+  const ideasHeaderActions = (
+    <>
+      {onNewIdea && (
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNewIdea} aria-label="New idea" title="New idea">
+          <Plus className="h-4 w-4" />
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7"
+        onClick={() => setIdeasOpen(false)}
+        aria-label="Hide ideas"
+        aria-expanded
+        title="Hide ideas"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+    </>
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {/* Workspace + tools */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="min-w-0 flex-1">
+          {overview || (
+            singleRepo && (
+              <div className="flex items-center gap-2 min-w-0" title={singleRepo.path}>
+                <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />
+                <span className="text-sm font-semibold truncate">{singleRepo.name}</span>
+                <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                  {summaries.total.active} active
+                  {summaries.total.tasks.total > 0 &&
+                    ` · ${summaries.total.tasks.done}/${summaries.total.tasks.total} tasks checked`}
+                </span>
+              </div>
+            )
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <SearchBar id={SEARCH_INPUT_ID} value={searchQuery} onChange={setSearchQuery} placeholder="Search changes" />
+          <SortDropdown value={sortBy} onChange={setSortBy} />
+          {multiRepo && !selectedSourceId && <LayoutToggle layout={layout} onChange={setLayout} />}
+        </div>
+      </div>
+
+      {noMatches ? (
+        <NoMatches query={searchQuery} onClear={() => setSearchQuery('')} />
+      ) : lanes ? (
+        <Lanes
+          columns={stageColumns}
+          ideas={ideasColumn ? { open: ideasOpen, compact: ideasToggle, actions: ideasHeaderActions } : null}
+          repos={summaries.repos}
+          colorOf={colorOf}
+          countOf={countOf}
+          itemsOf={itemsOf}
+          renderItems={renderItems}
+        />
+      ) : (
+        <div className="flex min-h-0 flex-1 gap-3">
+          {ideasColumn && !ideasOpen && ideasRail}
+          {(ideasColumn && ideasOpen ? columns : stageColumns).map((key) => (
+            <section key={key} className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={columnMeta(key).label}>
+              <ColumnHeader columnKey={key} count={countOf(key)} action={key === 'ideas' ? ideasHeaderActions : undefined} />
+              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4 pr-1 pt-1">
+                {renderItems(key, itemsOf(key), true)}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NoMatches({ query, onClear }: { query: string; onClear: () => void }) {
+  return (
+    <CenteredMessage icon={<SearchX className="h-8 w-8" />} title={`Nothing matches "${query}"`}>
+      <p className="text-sm text-muted-foreground mt-1">Search looks at change names, summaries and repo names.</p>
+      <Button onClick={onClear} variant="outline" size="sm" className="mt-4">
+        Clear search
+      </Button>
+    </CenteredMessage>
+  );
+}
+
+interface LanesProps {
+  columns: ColumnKey[];
+  ideas: { open: boolean; compact: React.ReactNode; actions: React.ReactNode } | null;
+  repos: ReturnType<typeof repoSummaries>['repos'];
+  colorOf: (id: string) => string;
+  countOf: (key: ColumnKey) => number;
+  itemsOf: (key: ColumnKey, sourceId?: string) => (Change | Idea)[];
+  renderItems: (key: ColumnKey, items: (Change | Idea)[], withRepo: boolean) => React.ReactNode;
+}
+
+/** One row per repo, the same stage columns across: who is where, side by side. */
+function Lanes({ columns, ideas, repos, colorOf, countOf, itemsOf, renderItems }: LanesProps) {
+  const all: ColumnKey[] = ideas?.open ? ['ideas', ...columns] : columns;
+  const template = `${ideas && !ideas.open ? '2.5rem ' : ''}repeat(${all.length}, minmax(0, 1fr))`;
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto pb-4">
+      <div className="grid gap-x-3" style={{ gridTemplateColumns: template }}>
+        <div className="contents">
+          {ideas && !ideas.open && <div className="sticky top-0 z-10 bg-background">{ideas.compact}</div>}
+          {all.map((key) => (
+            <div key={key} className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
+              <ColumnHeader columnKey={key} count={countOf(key)} action={key === 'ideas' ? ideas?.actions : undefined} />
+            </div>
+          ))}
+        </div>
+        {repos.map((repo) => {
+          return (
+            <section key={repo.id} className="contents" aria-label={repo.name}>
+              <div className="col-span-full mt-3 mb-1.5 flex items-center gap-2 border-t border-border/70 pt-3 px-1">
+                <span className={cn('h-2 w-2 rounded-full', colorOf(repo.id))} aria-hidden />
+                <h3 className="text-[13px] font-semibold">{repo.name}</h3>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {repo.active} active
+                  {repo.tasks.total > 0 && ` · ${repo.tasks.done}/${repo.tasks.total} tasks checked`}
+                  {repo.problem && ` · ${repo.problem}`}
+                </span>
+              </div>
+              {ideas && !ideas.open && <div aria-hidden />}
+              {all.map((key) => {
+                const items = itemsOf(key, repo.id);
                 return (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      if (!isAnimating) {
-                        setIsAnimating(true);
-                        setActiveColumnIndex(idx);
-                        setTimeout(() => setIsAnimating(false), 200);
-                      }
-                    }}
-                    className={cn(
-                      "px-3 py-1.5 text-xs font-medium rounded-full transition-all duration-200 flex items-center gap-1.5",
-                      idx === activeColumnIndex
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                    aria-label={`${col.label} (${totalCount})`}
-                  >
-                    <span className={col.color}>{col.icon}</span>
-                    <span className="hidden xs:inline">{col.label.split(' ')[0]}</span>
-                  </button>
+                  <div key={key} className="flex min-w-0 flex-col gap-2">
+                    {items.length > 0 && renderItems(key, items, false)}
+                  </div>
                 );
               })}
-            </div>
-            
-            {/* Count badge */}
-            <span className="text-xs text-muted-foreground">
-              {totalCount} {totalCount === 1 ? 'item' : 'items'}
-            </span>
-          </div>
-
-          <button
-            onClick={goToNextColumn}
-            disabled={activeColumnIndex === COLUMNS.length - 1}
-            className={cn(
-              "p-2 rounded-full transition-all",
-              activeColumnIndex === COLUMNS.length - 1
-                ? "text-muted-foreground/30"
-                : "text-foreground hover:bg-muted active:scale-95"
-            )}
-            aria-label="Next column"
-          >
-            <ChevronRight className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Swipeable content area */}
-        <div 
-          ref={containerRef}
-          className="flex-1 overflow-hidden relative"
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-        >
-           <div 
-             className={cn(
-               "h-full px-1 overflow-y-auto",
-               isAnimating && "transition-transform duration-200 ease-out"
-             )}
-             style={{ 
-               transform: `translateX(${dragOffset}px)`,
-               opacity: Math.max(0.4, 1 - Math.abs(dragOffset) / 400)
-             }}
-            >
-              <div className="flex flex-col gap-3 pb-4">
-                {columnItems.map((item) => {
-                  // Type guard based on unique properties: Idea doesn't have 'status'
-                  const isIdea = !('status' in item);
-                  
-                  if (isIdea) {
-                    return (
-                      <IdeaCard
-                        key={item.id}
-                        idea={item}
-                        onClick={() => onIdeaClick?.(item)}
-                      />
-                    );
-                  } else {
-                    return (
-                      <ChangeCard
-                        key={item.id}
-                        change={item}
-                        onClick={() => onCardClick(item)}
-                      />
-                    );
-                  }
-                })}
-                
-                {totalCount === 0 && (
-                  <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className={cn("mb-3", activeColumn.color)}>
-                      {activeColumn.icon}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      No items in {activeColumn.label}
-                    </div>
-                  </div>
-                )}
-              </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Desktop: Horizontal columns
-  return (
-    <div className="flex flex-col gap-4">
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <SearchBar
-          value={searchQuery}
-          onChange={setSearchQuery}
-          placeholder="Search changes..."
-        />
-        <SortDropdown value={sortBy} onChange={setSortBy} />
-      </div>
-
-      {/* Kanban columns */}
-      <div className="flex gap-4 pb-4">
-        {COLUMNS.map((column) => {
-          const isIdeasColumn = (column as any).type === 'ideas';
-          const isArchivedColumn = (column as any).type === 'archived';
-          let columnItems: (Change | Idea)[] = [];
-          
-          if (isIdeasColumn) {
-            columnItems = filteredIdeas;
-          } else if (isArchivedColumn) {
-            columnItems = sortedChanges.filter((c) => c.status === 'archived');
-          } else {
-            columnItems = sortedChanges.filter((c) => c.status === (column as { status: ChangeStatus }).status);
-          }
-          
-          const { label, icon, color } = column;
-          const totalCount = columnItems.length;
-          
-          return (
-            <div
-              key={label}
-              className="flex-1 min-w-0 flex flex-col"
-            >
-              {/* Column header */}
-              <div className="sticky top-0 bg-background/95 backdrop-blur-sm py-3 z-10 border-b border-border/50 mb-3">
-                <div className="flex items-center gap-2">
-                  <span className={color}>{icon}</span>
-                  <h2 className="text-sm font-semibold text-foreground">
-                    {label}
-                  </h2>
-                  <span className="ml-auto text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
-                    {totalCount}
-                  </span>
-                </div>
-              </div>
-              
-              {/* Column content */}
-              <div className="flex flex-col gap-3 flex-1 overflow-y-auto max-h-[calc(100dvh-14rem)] pr-1">
-                {columnItems.map((item) => {
-                  // Type guard based on unique properties: Idea doesn't have 'status'
-                  const isIdea = !('status' in item);
-                  
-                  if (isIdea) {
-                    return (
-                      <IdeaCard
-                        key={item.id}
-                        idea={item}
-                        onClick={() => onIdeaClick?.(item)}
-                      />
-                    );
-                  } else {
-                    return (
-                      <ChangeCard
-                        key={item.id}
-                        change={item}
-                        onClick={() => onCardClick(item)}
-                      />
-                    );
-                  }
-                })}
-                
-                {totalCount === 0 && (
-                  <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border/50 bg-muted/20">
-                    <span className={cn("mb-2 opacity-40", color)}>{icon}</span>
-                    <div className="text-xs text-muted-foreground/70">
-                      No items
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            </section>
           );
         })}
       </div>

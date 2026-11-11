@@ -44,6 +44,10 @@ export interface Change {
   name: string;
   sourceId: string;
   status: ChangeStatus;
+  /** The proposal's own title, when it has one beyond `# Proposal` (absent from older backends) */
+  title?: string | null;
+  /** One line on what the change is for: `goal`, else the proposal's Why (absent from older backends) */
+  summary?: string | null;
   hasProposal: boolean;
   hasSpecs: boolean;
   hasTasks: boolean;

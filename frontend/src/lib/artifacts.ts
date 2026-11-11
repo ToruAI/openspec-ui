@@ -1,4 +1,4 @@
-import { FileText, Layers, CheckSquare, Palette, File } from 'lucide-react';
+import { FileText, Layers, CheckSquare, Palette, File, Check, Minus, ArrowRight, Lock } from 'lucide-react';
 import type { Artifact, Change } from '../types';
 
 export interface ArtifactMeta {
@@ -32,6 +32,20 @@ export function artifactMeta(id: string): ArtifactMeta {
   };
 }
 
+/** How each artifact status reads; the icon carries it as much as the colour does. */
+export const ARTIFACT_STATUS: Record<Artifact['status'], { label: string; Icon: typeof FileText }> = {
+  done: { label: 'written', Icon: Check },
+  skipped: { label: 'skipped', Icon: Minus },
+  ready: { label: 'ready to write', Icon: ArrowRight },
+  blocked: { label: 'waiting', Icon: Lock },
+};
+
+/** "a", "a and b", "a, b and c" */
+export function joinWords(words: string[]): string {
+  if (words.length <= 1) return words.join('');
+  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
 /** Tooltip text, in the same terms `openspec status` uses. */
 export function artifactTitle(artifact: Artifact): string {
   switch (artifact.status) {
@@ -43,7 +57,7 @@ export function artifactTitle(artifact: Artifact): string {
       return `Ready to write (${artifact.outputPath}) — nothing blocking it`;
     case 'blocked':
       return artifact.missingDeps.length > 0
-        ? `Waiting for ${artifact.missingDeps.join(' and ')}`
+        ? `Waiting for ${joinWords(artifact.missingDeps)}`
         : 'Not written yet';
   }
 }

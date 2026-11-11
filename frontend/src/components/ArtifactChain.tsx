@@ -1,6 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import type { Artifact } from '../types';
-import { artifactMeta, artifactTitle, nextArtifactId } from '@/lib/artifacts';
+import { ARTIFACT_STATUS, artifactMeta, artifactTitle, nextArtifactId } from '@/lib/artifacts';
 import { cn } from '@/lib/utils';
 
 interface ArtifactChainProps {
@@ -12,19 +12,26 @@ interface ArtifactChainProps {
 }
 
 /**
- * A change's workflow chain in build order: written, skipped, ready to write
- * (the first one is marked "next"), or waiting on another artifact.
+ * A change's workflow chain in build order. Each step says its state with an
+ * icon as well as a colour: written (check), skipped (dash), ready to write
+ * (arrow; the first one is "next", as `openspec status` puts it), or waiting
+ * on another artifact (lock).
  */
 export function ArtifactChain({ artifacts, error, warnings = [], className }: ArtifactChainProps) {
   if (error) {
     return (
       <div
-        className={cn('flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400', className)}
+        className={cn(
+          'flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:text-amber-300',
+          className
+        )}
         title={error}
         role="alert"
       >
-        <AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0" />
-        <span className="line-clamp-2">OpenSpec can't read this change: {error}</span>
+        <AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0" aria-hidden />
+        <span className="line-clamp-3">
+          <span className="font-semibold">OpenSpec can't read this change.</span> {error}
+        </span>
       </div>
     );
   }
@@ -32,37 +39,49 @@ export function ArtifactChain({ artifacts, error, warnings = [], className }: Ar
   const next = nextArtifactId(artifacts);
 
   return (
-    <div className={cn('flex gap-2 flex-wrap items-center', className)}>
+    <ul className={cn('flex gap-1 flex-wrap items-center', className)} aria-label="Artifacts">
       {artifacts.map((artifact) => {
-        const { label, Icon, tone } = artifactMeta(artifact.id);
+        const { label } = artifactMeta(artifact.id);
+        const { Icon, label: statusLabel } = ARTIFACT_STATUS[artifact.status];
         const isNext = artifact.id === next;
 
         return (
-          <div
+          <li
             key={artifact.id}
             title={artifactTitle(artifact)}
             data-status={artifact.status}
             className={cn(
-              'flex items-center gap-1.5 px-2 py-1 rounded-md transition-opacity',
-              artifact.status === 'done' && tone,
+              'flex items-center gap-1 h-5 px-1.5 rounded text-[11px] leading-none whitespace-nowrap',
+              artifact.status === 'done' && 'bg-muted/70 text-foreground/75',
               artifact.status === 'skipped' &&
-                'text-muted-foreground/60 border border-dashed border-muted-foreground/30',
-              artifact.status === 'ready' && 'bg-foreground/5 text-foreground/70 ring-1 ring-inset ring-foreground/15',
-              artifact.status === 'blocked' && 'bg-muted/50 text-muted-foreground/50'
+                'text-muted-foreground border border-dashed border-muted-foreground/40 line-through decoration-muted-foreground/50',
+              artifact.status === 'ready' && 'text-foreground ring-1 ring-inset ring-foreground/25',
+              isNext && 'bg-primary/10 text-primary ring-primary/40 font-semibold',
+              artifact.status === 'blocked' && 'text-muted-foreground'
             )}
           >
-            <Icon className="h-3 w-3" />
-            <span className="text-[10px] font-medium">{label}</span>
-            {isNext && <span className="text-[9px] font-normal opacity-70">next</span>}
-            {artifact.status === 'skipped' && <span className="text-[9px] font-normal opacity-70">skipped</span>}
-          </div>
+            <Icon
+              className={cn(
+                'h-3 w-3 shrink-0',
+                artifact.status === 'done' && 'text-emerald-600 dark:text-emerald-400'
+              )}
+              aria-hidden
+            />
+            <span>{label}</span>
+            {isNext ? (
+              <span className="text-[10px] font-medium opacity-80">next</span>
+            ) : (
+              <span className="sr-only">, {statusLabel}</span>
+            )}
+          </li>
         );
       })}
       {warnings.length > 0 && (
-        <span title={warnings.join('\n')} className="text-amber-500" aria-label="OpenSpec warnings">
-          <AlertTriangle className="h-3 w-3" />
-        </span>
+        <li title={warnings.join('\n')} className="flex items-center text-amber-600 dark:text-amber-400">
+          <AlertTriangle className="h-3 w-3" aria-hidden />
+          <span className="sr-only">OpenSpec warnings: {warnings.join(' ')}</span>
+        </li>
       )}
-    </div>
+    </ul>
   );
 }
