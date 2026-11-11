@@ -7,7 +7,7 @@ import { IdeaDetailModal } from './components/IdeaDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { IdeaCapture } from './components/IdeaCapture';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { useSSE, useChanges, useSpecs, useSources, useIdeas } from './hooks/useApi';
+import { useSSE, useChanges, useSpecs, useSources, useIdeas, useServerInfo } from './hooks/useApi';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { Change, Idea } from './types';
 import './App.css';
@@ -58,6 +58,13 @@ function App() {
   }, [selectedSourceId]);
 
   const { sources, refetch: refetchSources } = useSources();
+  const serverInfo = useServerInfo();
+
+  // The stored selection is shared by every board served on this origin
+  // (e.g. another folder on the same port). Ignore it when it does not match
+  // a current source instead of showing an empty board.
+  const effectiveSourceId =
+    selectedSourceId && sources.some((s) => s.id === selectedSourceId) ? selectedSourceId : null;
   const { changes, loading: changesLoading, error: changesError, refetch: refetchChanges } = useChanges();
   const { refetch: refetchSpecs } = useSpecs();
   const { ideas, loading: ideasLoading, error: ideasError, refetch: refetchIdeas } = useIdeas();
@@ -91,12 +98,14 @@ function App() {
           currentView={currentView}
           onViewChange={setCurrentView}
           sources={sources}
-          selectedSourceId={selectedSourceId}
+          selectedSourceId={effectiveSourceId}
           onSourceChange={setSelectedSourceId}
           showArchived={showArchived}
           onShowArchivedChange={setShowArchived}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenNewIdea={() => setIdeaCaptureOpen(true)}
+          version={serverInfo?.version}
+          changelogUrl={serverInfo?.changelog}
         />
         <main className={currentView === 'kanban' ? "px-4 pt-4 md:pt-6" : "max-w-7xl mx-auto px-4 pt-4 md:pt-6"}>
           {currentView === 'kanban' ? (
@@ -108,12 +117,13 @@ function App() {
               error={changesError || ideasError}
               onCardClick={setSelectedChange}
               onIdeaClick={setSelectedIdea}
-              selectedSourceId={selectedSourceId}
+              selectedSourceId={effectiveSourceId}
               showArchived={showArchived}
               onOpenSettings={() => setSettingsOpen(true)}
+              searchedRoots={serverInfo?.mode === 'discovered' ? serverInfo.roots : undefined}
             />
           ) : (
-            <SpecsView selectedSourceId={selectedSourceId} />
+            <SpecsView selectedSourceId={effectiveSourceId} />
           )}
         </main>
         {selectedChange && (

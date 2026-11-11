@@ -104,6 +104,23 @@ describe('KanbanBoard', () => {
         selectedSourceId={null}
       />
     );
-    expect(screen.getByText('No OpenSpec sources configured')).toBeInTheDocument();
+    expect(screen.getByText('No OpenSpec projects found')).toBeInTheDocument();
+  });
+
+  it('tells how to point it at repos when a search found nothing', () => {
+    render(
+      <KanbanBoard
+        changes={[]}
+        ideas={[]}
+        sources={[]}
+        onCardClick={vi.fn()}
+        onIdeaClick={vi.fn()}
+        selectedSourceId={null}
+        searchedRoots={['/home/me/empty']}
+      />
+    );
+    expect(screen.getByText('/home/me/empty')).toBeInTheDocument();
+    expect(screen.getByText(/openspec-ui ~\/code/)).toBeInTheDocument();
+    expect(screen.getByText(/openspec init/)).toBeInTheDocument();
   });
 });
