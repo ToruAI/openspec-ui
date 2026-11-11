@@ -160,7 +160,14 @@ jobs:
 
       - name: Install musl tools
         if: endsWith(matrix.target, '-musl')
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+        # The runners' apt mirrors fail to resolve now and then; retry before giving up.
+        run: |
+          for attempt in 1 2 3 4; do
+            if sudo apt-get update && sudo apt-get install -y musl-tools; then exit 0; fi
+            echo "apt failed (attempt $attempt), retrying in 20 s"
+            sleep 20
+          done
+          exit 1
 
       - name: Build binary
         working-directory: backend
