@@ -175,42 +175,24 @@ jobs:
         shell: bash
         env:
           BIN: backend/target/${{ matrix.target }}/release/${{ matrix.exe }}
-        run: |
-          set -euo pipefail
-          src="$(cygpath -m "$PWD/example-openspec" 2>/dev/null || echo "$PWD/example-openspec")"
-          mkdir -p smoke
-          printf '{"sources":[{"name":"example","path":"%s"}],"port":3917}' "$src" > smoke/config.json
-          PORT=3917 "$BIN" --config smoke/config.json &
-          pid=$!
-          ok=false
-          for _ in $(seq 1 40); do
-            if curl -fsS http://127.0.0.1:3917/api/health >/dev/null 2>&1; then ok=true; break; fi
-            sleep 0.5
-          done
-          if [ "$ok" != true ]; then kill "$pid" 2>/dev/null || true; echo "::error::binary did not become healthy"; exit 1; fi
-          curl -fsS http://127.0.0.1:3917/ | grep -q 'id="root"' || { kill "$pid" || true; echo "::error::embedded frontend missing"; exit 1; }
-          kill "$pid" 2>/dev/null || true
-          BINARY="$BIN" scripts/check-version.sh "${{ needs.meta.outputs.tag }}"
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: scripts/smoke-binary.sh "$BIN" "$TAG"
 
-      - name: Package .gz (npm launcher, install.sh)
+      # .gz (npm launcher, install.sh) and, on unix, the .zip for humans.
+      - name: Package .gz and .zip (unix)
+        if: runner.os != 'Windows'
+        env:
+          BIN: backend/target/${{ matrix.target }}/release/${{ matrix.exe }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: scripts/package-release.sh "$BIN" "${{ matrix.asset }}" "$TAG" dist
+
+      - name: Package .gz (windows)
+        if: runner.os == 'Windows'
         shell: bash
         env:
           BIN: backend/target/${{ matrix.target }}/release/${{ matrix.exe }}
-        run: |
-          mkdir -p dist
-          gzip -9 -n -c "$BIN" > "dist/openspec-ui-${{ matrix.asset }}.gz"
-
-      - name: Package .zip (unix)
-        if: runner.os != 'Windows'
-        env:
           TAG: ${{ needs.meta.outputs.tag }}
-        run: |
-          STAGE="openspec-ui-${TAG}-${{ matrix.asset }}"
-          mkdir -p "$STAGE"
-          cp "backend/target/${{ matrix.target }}/release/${{ matrix.exe }}" "$STAGE/"
-          cp README.md "$STAGE/"
-          if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
-          zip -r "dist/${STAGE}.zip" "$STAGE"
+        run: scripts/package-release.sh "$BIN" "${{ matrix.asset }}" "$TAG" dist --no-zip
 
       - name: Package .zip (windows)
         if: runner.os == 'Windows'
@@ -249,16 +231,7 @@ jobs:
       - name: Check completeness, add install.sh, write SHA256SUMS
         env:
           TAG: ${{ needs.meta.outputs.tag }}
-        run: |
-          set -euo pipefail
-          for id in darwin-aarch64 darwin-x86_64 linux-x86_64 linux-aarch64 windows-x86_64; do
-            [ -f "dist/openspec-ui-$id.gz" ] || { echo "::error::missing openspec-ui-$id.gz"; exit 1; }
-            [ -f "dist/openspec-ui-${TAG}-$id.zip" ] || { echo "::error::missing openspec-ui-${TAG}-$id.zip"; exit 1; }
-          done
-          cp install.sh dist/install.sh
-          (cd dist && sha256sum -- * | LC_ALL=C sort -k2 > ../SHA256SUMS)
-          mv SHA256SUMS dist/SHA256SUMS
-          cat dist/SHA256SUMS
+        run: scripts/assemble-release.sh dist "$TAG"
 
       - uses: actions/upload-artifact@v5
         with:
@@ -395,11 +368,7 @@ jobs:
 
       # The image reuses the tested musl release binaries (no compiling under QEMU).
       - name: Unpack binaries for the build context
-        run: |
-          mkdir -p bins/amd64 bins/arm64
-          gzip -dc dist/openspec-ui-linux-x86_64.gz > bins/amd64/openspec-ui
-          gzip -dc dist/openspec-ui-linux-aarch64.gz > bins/arm64/openspec-ui
-          chmod +x bins/*/openspec-ui
+        run: scripts/unpack-image-bins.sh dist bins
 
       - uses: docker/setup-buildx-action@v3
 
@@ -414,16 +383,7 @@ jobs:
           tags: openspec-ui:smoke
 
       - name: Run the image
-        run: |
-          docker run -d --name smoke -p 3000:3000 -v "$PWD/demo:/repos:ro" openspec-ui:smoke
-          for _ in $(seq 1 40); do
-            curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1 && ok=1 && break
-            sleep 0.5
-          done
-          docker logs smoke
-          [ "${ok:-}" = 1 ] || { echo "::error::container never became healthy"; exit 1; }
-          curl -fsS http://127.0.0.1:3000/ | grep -q 'id="root"'
-          docker rm -f smoke
+        run: scripts/smoke-image.sh openspec-ui:smoke "$PWD/demo" 3000
 
       - name: Compute tags
         id: tags

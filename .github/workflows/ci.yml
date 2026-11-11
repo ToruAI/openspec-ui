@@ -80,7 +80,7 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck --shell=sh install.sh
-          shellcheck scripts/check-version.sh
+          shellcheck -S warning scripts/*.sh
       - name: actionlint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
