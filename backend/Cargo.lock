@@ -873,7 +873,6 @@ dependencies = [
  "clap",
  "futures",
  "globset",
- "libc",
  "mime_guess",
  "notify",
  "notify-debouncer-full",

@@ -68,8 +68,8 @@ pub struct Args {
     pub host: String,
 
     /// Also answer to this host name (repeatable; the variable takes a comma-
-    /// separated list). Needed behind a reverse proxy, or to open the board
-    /// by a name other than localhost, an IP address or this computer's name
+    /// separated list): this computer's name, a reverse proxy's. localhost and
+    /// IP addresses always work
     #[arg(
         long = "allowed-host",
         env = "OPENSPEC_UI_ALLOWED_HOSTS",

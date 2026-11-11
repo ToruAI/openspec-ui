@@ -75,7 +75,7 @@ openspec-ui --json           # one JSON line with the URL, for scripts and agent
 
 It takes port 3000, or the next free one. Starting it again for the same folders reuses the running server instead of starting a second one. With `--json` it prints that one line and keeps serving, so scripts should start it in the background; `GET /api/info` returns the same JSON, and `GET /api/changes` the board's data. `openspec-ui --help` lists every option.
 
-**On your phone.** The board listens on localhost only. Start it with `--host 0.0.0.0` and press the phone button in the header: it shows the address to open on a phone on the same network. Open it by that IP address (or this computer's name); another name, such as a reverse proxy's, needs `--allowed-host NAME`. Settings are read-only on the phone.
+**On your phone.** The board listens on localhost only. Start it with `--host 0.0.0.0` and press the phone button in the header: it shows the address to open on a phone on the same network. Open it by that IP address; a name such as `my-pc.local` or a reverse proxy's needs `--allowed-host NAME`. Settings are read-only on the phone.
 
 **A fixed list of repos.** Optional: put an `openspec-ui.json` in the folder you start from, or pass `--config`:
 

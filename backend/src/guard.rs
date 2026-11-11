@@ -5,13 +5,14 @@
 //! - **DNS rebinding.** A website the user visits can point its own name at
 //!   this server and then talk to it "same-origin". The browser still sends
 //!   the attacker's name as `Host`, so only Hosts this server knows are
-//!   answered: loopback names and addresses, any IP literal, this machine's
-//!   host name, and names given with `--allowed-host`. An IP literal cannot
-//!   be rebound (there is no name to repoint), which is what keeps phone and
-//!   Docker access working without configuration.
+//!   answered: loopback names and addresses, any IP literal, and names given
+//!   with `--allowed-host`. An IP literal cannot be rebound (there is no name
+//!   to repoint), which is what keeps phone and Docker access working without
+//!   configuration. The machine's own host name is deliberately not trusted:
+//!   on a network that assigns it (DHCP), that network controls the name.
 //! - **Cross-site writes.** State-changing requests that carry an `Origin`
 //!   must come from a page of this server: an Origin whose host is a name
-//!   the Host check accepts (loopback, host name, allow-list) or, for an IP
+//!   the Host check accepts (loopback, allow-list) or, for an IP
 //!   address, exactly the address the request was sent to; on the same port
 //!   unless the name is allow-listed. Exact origins in `CORS_ALLOWED_ORIGINS`
 //!   are also accepted. Requests without `Origin` (curl, scripts) pass.
@@ -91,50 +92,9 @@ pub fn parse_allowed_hosts(values: &[String]) -> Result<Vec<Authority>, String> 
         .collect()
 }
 
-/// This machine's own names: what `hostname` prints, plus its `.local`
-/// (Bonjour/mDNS) form. Inside a container this is the container's name,
-/// which is harmless.
-pub fn machine_names() -> Vec<String> {
-    let Some(name) = system_hostname() else {
-        return Vec::new();
-    };
-    let name = name.trim().trim_end_matches('.').to_ascii_lowercase();
-    if name.is_empty() || name == "localhost" || Authority::parse(&name).is_none() {
-        return Vec::new();
-    }
-    let mut names = vec![name.clone()];
-    match name.strip_suffix(".local") {
-        Some(label) if !label.contains('.') => names.push(label.to_string()),
-        Some(_) => {}
-        None if !name.contains('.') => names.push(format!("{name}.local")),
-        None => {}
-    }
-    names
-}
-
-#[cfg(unix)]
-fn system_hostname() -> Option<String> {
-    let mut buf = [0u8; 256];
-    // SAFETY: the buffer is valid for its whole length; gethostname writes at
-    // most that many bytes and we only read up to the first NUL.
-    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
-    if rc != 0 {
-        return None;
-    }
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    String::from_utf8(buf[..end].to_vec()).ok()
-}
-
-#[cfg(not(unix))]
-fn system_hostname() -> Option<String> {
-    std::env::var("COMPUTERNAME").ok()
-}
-
 pub struct Guard {
     /// Hosts from `--allowed-host` / `OPENSPEC_UI_ALLOWED_HOSTS`.
     pub allowed_hosts: Vec<Authority>,
-    /// This machine's host names ([`machine_names`]).
-    pub machine_names: Vec<String>,
     /// Exact origins from `CORS_ALLOWED_ORIGINS`, also allowed to write.
     pub allowed_origins: Vec<String>,
 }
@@ -148,7 +108,7 @@ impl Guard {
 
     /// A name (not just any IP) this server answers to.
     fn known_name(&self, a: &Authority) -> bool {
-        is_loopback_name(&a.host) || self.machine_names.contains(&a.host) || self.allow_listed(a)
+        is_loopback_name(&a.host) || self.allow_listed(a)
     }
 
     fn host_ok(&self, a: &Authority) -> bool {
@@ -218,9 +178,9 @@ fn host_refused(host: &str) -> String {
     };
     format!(
         "openspec-ui does not answer to {shown}.\n\
-         It answers to localhost, IP addresses and this computer's own name, so that other \
-         websites cannot reach it through DNS tricks.\n\
-         To open it under this name (a reverse proxy, a Docker host, an alias), start it with \
+         It answers to localhost and IP addresses, so that other websites cannot reach it \
+         through DNS tricks.\n\
+         To open it under this name (this computer's name, a reverse proxy, an alias), start it with \
          --allowed-host {flag} (or set OPENSPEC_UI_ALLOWED_HOSTS={flag}).\n"
     )
 }
@@ -266,7 +226,6 @@ mod tests {
     fn guard(allowed: &[&str]) -> Guard {
         Guard {
             allowed_hosts: parse_allowed_hosts(&allowed.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap(),
-            machine_names: vec!["bookmacair".into(), "bookmacair.local".into()],
             allowed_origins: vec![],
         }
     }
@@ -296,7 +255,7 @@ mod tests {
         let g = guard(&[]);
         for host in [
             "rebind.attacker.example:3000",
-            "my-laptop.local:3000", // not this machine's name
+            "my-laptop.local:3000", // the machine's own name is not trusted either
             "my-laptop.lan:3000",
             "localhost.evil.example:3000",
         ] {
@@ -308,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn loopback_ip_literals_machine_names_and_allow_list_are_answered() {
+    fn loopback_ip_literals_and_allow_list_are_answered() {
         let g = guard(&["board.example.com", "nas.lan:8443"]);
         for host in [
             "127.0.0.1:3000",
@@ -318,8 +277,6 @@ mod tests {
             "192.168.1.5:3000",
             "10.0.0.7",
             "[fe80::1]:3000",
-            "BookMacAir.local:3000",
-            "bookmacair:3000",
             "board.example.com",
             "board.example.com:443",
             "nas.lan:8443",
@@ -336,7 +293,6 @@ mod tests {
         assert!(post(&g, "127.0.0.1:3000", "http://127.0.0.1:3000"));
         assert!(post(&g, "localhost:5173", "http://localhost:5173"), "vite dev proxy keeps Host");
         assert!(post(&g, "192.168.1.5:3000", "http://192.168.1.5:3000"), "phone on the LAN");
-        assert!(post(&g, "bookmacair.local:3000", "http://bookmacair.local:3000"));
         // curl and scripts send no Origin
         assert!(g.verdict(&Method::POST, &headers("127.0.0.1:3000", None)).is_none());
 
@@ -378,14 +334,6 @@ mod tests {
             ]
         );
         assert!(parse_allowed_hosts(&["evil example".into()]).is_err());
-    }
-
-    #[test]
-    fn machine_names_include_the_mdns_form() {
-        let names = machine_names();
-        for n in &names {
-            assert!(Authority::parse(n).is_some(), "{n}");
-        }
     }
 
     #[test]

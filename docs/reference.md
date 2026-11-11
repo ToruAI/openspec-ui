@@ -14,8 +14,8 @@ openspec-ui [OPTIONS] [PATH]...
   -p, --port <PORT>    Port. Without it: 3000, or the next free port if 3000 is taken  [env: PORT]
       --host <ADDR>    Address to listen on. Default 127.0.0.1; 0.0.0.0 for other devices  [env: OPENSPEC_UI_HOST]
       --allowed-host <HOST>
-                       Also answer to this host name (repeatable). For reverse proxies and
-                       names other than localhost, an IP or this computer's  [env: OPENSPEC_UI_ALLOWED_HOSTS]
+                       Also answer to this host name (repeatable): this computer's name,
+                       a reverse proxy's. localhost and IP addresses always work  [env: OPENSPEC_UI_ALLOWED_HOSTS]
       --depth <N>      Folder levels below each PATH to search for repos (default 3)
       --no-open        Do not open the browser  [env: OPENSPEC_UI_NO_OPEN]
       --json           Print one JSON line instead of the banner; never opens the browser
@@ -115,7 +115,7 @@ JSON over HTTP on the same port as the board. Ids are `repo/name`; encode the sl
 
 There is no authentication; see [SECURITY.md](../SECURITY.md). Instead, every request is checked:
 
-- **`Host`** must be `localhost` (or `*.localhost`), an IP address, this computer's host name (and its `.local` form), or a name given with `--allowed-host`. Anything else gets a plain-text 403 that names the flag. This stops DNS rebinding: a website cannot point its own name at the board. An IP address cannot be rebound, so opening the board by IP always works.
+- **`Host`** must be `localhost` (or `*.localhost`), an IP address, or a name given with `--allowed-host` (this computer's own name too: a network can assign that name, so it is not trusted by default). Anything else gets a plain-text 403 that names the flag. This stops DNS rebinding: a website cannot point its own name at the board. An IP address cannot be rebound, so opening the board by IP always works.
 - **Writes** (`POST`, `PUT`, `DELETE`) with an `Origin` header must come from the board's own page: an allow-listed name, or the same host and port the request was sent to. Origins in `CORS_ALLOWED_ORIGINS` are also accepted. Requests without `Origin` (curl, scripts) are not affected.
 - **Files** are read only inside each project's `openspec/` folder: a file or symlink that resolves outside it counts as absent.
 
@@ -131,7 +131,7 @@ docker run -p 3000:3000 -e OPENSPEC_UI_ALLOWED_HOSTS=my-pc.local \
 
 - The image searches `/repos` for repos with `openspec/` (three levels deep). Mount one parent folder, or several repos under it: `-v ~/code/api:/repos/api -v ~/code/web:/repos/web`.
 - Tags: `latest`, `X.Y.Z`, `X.Y`. Images for linux/amd64 and linux/arm64, built from the same static binaries as the release.
-- Inside the container the server listens on `0.0.0.0:3000` and never opens a browser. Choose what the host exposes with `-p`; `-p 127.0.0.1:3000:3000` keeps it on your machine. From a phone, open `http://<your computer's IP>:3000`; the container does not know your computer's name, so a name like `my-pc.local` needs `OPENSPEC_UI_ALLOWED_HOSTS`.
+- Inside the container the server listens on `0.0.0.0:3000` and never opens a browser. Choose what the host exposes with `-p`; `-p 127.0.0.1:3000:3000` keeps it on your machine. From a phone, open `http://<your computer's IP>:3000`; and a name like `my-pc.local` needs `OPENSPEC_UI_ALLOWED_HOSTS`.
 - The project list is read-only in the browser: requests reach the container through Docker's network, never from the container's own machine. Change the mounts (or the mounted config) instead.
 - The process runs as uid 10001; mounted folders must be readable by it. Mount read-only (`:ro`) if you do not need idea notes or Settings edits saved.
 - For a fixed list, mount a config as `/repos/openspec-ui.json`, or set `OPENSPEC_UI_CONFIG` to its path inside the container. Paths in it are container paths.

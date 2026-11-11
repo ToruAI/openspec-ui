@@ -352,8 +352,15 @@ async fn get_config(
     let mut response = config_manager
         .get_config_response()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    response.sources_editable = client.is_local();
+    response.sources_editable = may_edit_sources(&client);
     Ok(Json(response))
+}
+
+/// Only a browser on this machine may change the sources. Inside a container
+/// nobody is: requests arrive through the runtime's port forwarding, whose
+/// source address depends on the runtime, so the answer is fixed instead.
+fn may_edit_sources(client: &ClientAddr) -> bool {
+    client.is_local() && !startup::in_container()
 }
 
 /// Shown when another device tries to change the sources.
@@ -367,7 +374,7 @@ async fn update_sources(
 ) -> Result<Json<ConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Repointing the server at other folders lets the caller read them, so
     // only a client on this machine may do it (a phone may read the board).
-    if !client.is_local() {
+    if !may_edit_sources(&client) {
         return Err((StatusCode::FORBIDDEN, Json(ErrorResponse { error: SOURCES_LOCAL_ONLY.to_string() })));
     }
     let config_manager = state.config_manager().await;
@@ -847,7 +854,6 @@ async fn run(args: Args) -> Result<(), String> {
     let (cors, allowed_origins) = cors_layer(&local_origins);
     let guard = Arc::new(Guard {
         allowed_hosts,
-        machine_names: guard::machine_names(),
         allowed_origins,
     });
     let app = build_app(state, meta, guard, cors);
@@ -951,7 +957,7 @@ mod tests {
             lan_url: None,
             reused: false,
         });
-        let guard = Arc::new(Guard { allowed_hosts: vec![], machine_names: vec![], allowed_origins: vec![] });
+        let guard = Arc::new(Guard { allowed_hosts: vec![], allowed_origins: vec![] });
         let (cors, _) = cors_layer(&[]);
         let app = build_app(state, meta, guard, cors);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
