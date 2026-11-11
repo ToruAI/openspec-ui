@@ -57,6 +57,9 @@ struct SourceResponse {
     name: String,
     path: String,
     valid: bool,
+    /// Where this source's planning lives (local, store checkout, or a
+    /// pointer to an OpenSpec store elsewhere on the machine).
+    planning: Option<parser::PlanningRoot>,
 }
 
 #[derive(Serialize)]
@@ -119,6 +122,9 @@ async fn get_sources(State(state): State<AppState>) -> Json<SourcesResponse> {
             name: s.name.clone(),
             path: s.path.display().to_string(),
             valid: s.valid,
+            planning: s
+                .valid
+                .then(|| parser::inspect_planning_root(&s.path, &parser::ScanOptions::default())),
         })
         .collect();
     Json(SourcesResponse { sources: response })
